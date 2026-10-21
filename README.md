@@ -314,10 +314,29 @@ tests/
 **PHP 7.4.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
 - ✅ `patch -p1` applies cleanly on pristine `php-7.4.33`
-- ✅ `configure` + `make -j2` → success, binary runs
+- ✅ `configure` + `make -j2` → success, binary runs (php, php-cgi)
 - ✅ `multipart/form-data` POST with fields + file upload works
-- ✅ Enhanced patch: session upload progress still functional
-- ✅ Binary starts, `php -v` / `php -m` / `php -i` OK
+- ✅ Enhanced patch at official PHP 8.2.35 parity: chain-C refusal
+  (session destroyed when decode hits reserved incomplete-class property
+  names), `php_check_cancel_upload`, `post_max_size` "Actual POST length"
+  warning at fileupload_done, per-file byte sync before the throttle check
+- ✅ Official 8.2.35 test suite (adapted): `rfc1867.phpt`,
+  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`
+  — all PASS under php-cgi
+- ✅ `make test` subset (1540 tests: ext/session, serialize, file,
+  general_functions, main; php-cgi tests skipped): **1195 pass /
+  342 skip / 1 fail / 2 xfail** — the single fail
+  (`rfc1867_sid_invalid.phpt`) also fails on stock 7.4.33 in this
+  environment (save-path/env class, stock parity); the 15 fails of the
+  pre-fix build are gone after the rshutdown serializer fix
+- ✅ php-cgi tests: `bug72940`, `rfc1867_sid_{cookie,get,post}` PASS
+- ✅ `post_max_size` bypass (GHSA-2cv3-554h-jpmh) — via the
+  `tests/feedpost/` harness (missing Content-Length): pre-fix build
+  accepts the whole body silently (`LEN=500`), patched build emits the
+  official "Actual POST length does not match Content-Length" warning
+- ✅ Discriminator vs the previous 7.4 build (v1): `bug72940`, `rfc1867`,
+  `rfc1867_no_user_code`, `rfc1867_incomplete_class_reserved_props`
+  all FAIL on v1 and PASS on the current build
 
 Typical fleet this targets: OpenCart 2.x/3.x on PHP 5.6/7.0–7.3,
 HestiaCP / VestaCP panels, Debian 10/11 and Ubuntu 18.04/20.04/22.04

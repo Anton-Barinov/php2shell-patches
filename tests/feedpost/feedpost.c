@@ -11,7 +11,11 @@ static char *g_feed_data = NULL;
 static size_t g_feed_len = 0;
 static size_t g_feed_pos = 0;
 
+#if PHP_VERSION_ID >= 70000
+static size_t feed_read_post(char *buffer, size_t count_bytes)
+#else
 static int feed_read_post(char *buffer, uint count_bytes TSRMLS_DC)
+#endif
 {
 	size_t avail, n;
 
@@ -19,13 +23,13 @@ static int feed_read_post(char *buffer, uint count_bytes TSRMLS_DC)
 		return 0;
 	}
 	avail = g_feed_len - g_feed_pos;
-	n = avail < (size_t)count_bytes ? avail : (size_t)count_bytes;
+	n = avail < count_bytes ? avail : count_bytes;
 	if (n == 0) {
 		return 0;
 	}
 	memcpy(buffer, g_feed_data + g_feed_pos, n);
 	g_feed_pos += n;
-	return (int)n;
+	return n;
 }
 
 /* feed_multipart(string $body, string $content_type): array
@@ -40,14 +44,24 @@ static int feed_read_post(char *buffer, uint count_bytes TSRMLS_DC)
 PHP_FUNCTION(feed_multipart)
 {
 	char *data, *ct;
+#if PHP_VERSION_ID >= 70000
+	size_t data_len, ct_len;
+	size_t (*old_read_post)(char *, size_t);
+	zval arr;
+#else
 	int data_len, ct_len;
 	int (*old_read_post)(char *, uint TSRMLS_DC);
+	zval *arr;
+#endif
 	sapi_request_info old_ri;
 	int64_t old_rpb;
 	unsigned char old_post_read;
-	zval *arr;
 
+#if PHP_VERSION_ID >= 70000
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ss", &data, &data_len, &ct, &ct_len) == FAILURE) {
+#else
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ss", &data, &data_len, &ct, &ct_len) == FAILURE) {
+#endif
 		return;
 	}
 
@@ -57,7 +71,7 @@ PHP_FUNCTION(feed_multipart)
 	old_post_read = SG(post_read);
 
 	g_feed_data = data;
-	g_feed_len = (size_t)data_len;
+	g_feed_len = data_len;
 	g_feed_pos = 0;
 
 	sapi_module.read_post = feed_read_post;
@@ -66,6 +80,27 @@ PHP_FUNCTION(feed_multipart)
 	SG(read_post_bytes) = 0;
 	SG(post_read) = 0;
 
+#if PHP_VERSION_ID >= 70000
+	array_init(&arr);
+	rfc1867_post_handler(ct, &arr);
+
+	/* PHP 7+: destroy_uploaded_files_hash() is exported; it unlinks the
+	 * temp files and frees the hash but leaves the SG() pointer stale. */
+	if (SG(rfc1867_uploaded_files)) {
+		destroy_uploaded_files_hash();
+		SG(rfc1867_uploaded_files) = NULL;
+	}
+
+	sapi_module.read_post = old_read_post;
+	SG(request_info) = old_ri;
+	SG(read_post_bytes) = old_rpb;
+	SG(post_read) = old_post_read;
+	g_feed_data = NULL;
+	g_feed_len = 0;
+	g_feed_pos = 0;
+
+	RETVAL_ZVAL(&arr, 0, 1);
+#else
 	MAKE_STD_ZVAL(arr);
 	array_init(arr);
 
@@ -99,6 +134,7 @@ PHP_FUNCTION(feed_multipart)
 	g_feed_pos = 0;
 
 	RETVAL_ZVAL(arr, 1, 1);
+#endif
 }
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_feed_multipart, 0, 0, 2)
