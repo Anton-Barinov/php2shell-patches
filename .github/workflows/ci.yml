@@ -112,7 +112,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config libxml2-dev
+          sudo apt-get install -y -qq build-essential pkg-config libxml2-dev re2c
 
       - name: Download clean PHP ${{ matrix.version }}
         run: |
