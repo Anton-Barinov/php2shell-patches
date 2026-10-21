@@ -49,10 +49,12 @@ stays enabled.
 | 8.4.x < 8.4.27 | ✅ official | same |
 | 8.3.x < 8.3.36 | ✅ official | same |
 | 8.2.x < 8.2.35 | ✅ official | same (note: 8.2 EOL 31 Dec 2026 — plan upgrade) |
-| 8.1.x | ⚠️ backport | `php-8.1-minimal.patch` (PHP group) — enhanced coming soon |
-| 8.0.x | ⚠️ backport | `php-8.0-minimal.patch` (PHP group) — enhanced coming soon |
+| 8.1.x | ⚠️ backport | `php-8.1-minimal.patch` (PHP group) **or** `php-8.1-enhanced-universal.patch` |
+| 8.0.x | ⚠️ backport | `php-8.0-minimal.patch` (PHP group) **or** `php-8.0-enhanced-universal.patch` |
 | 7.4.x | ⚠️ backport | `php-7.4-minimal.patch` (official) **or** `php-7.4-enhanced-universal.patch` |
-| 7.0 – 7.3 | ❌ none | **migrate**, or apply hardening + consider the 7.4 enhanced patch after testing (may need small tweaks) |
+| 7.3.x | ⚠️ backport | `php-7.3-minimal.patch` **or** `php-7.3-enhanced-universal.patch` |
+| 7.2.x | ⚠️ backport | `php-7.2-minimal.patch` **or** `php-7.2-enhanced-universal.patch` |
+| 7.0 – 7.1 | ❌ none | **migrate**, or apply hardening + consider the 7.2 backport patches |
 | 5.6.x | ❌ none | **migrate**. Community backport: `php-5.6-enhanced-universal.patch` (recommended — root-cause fix, keeps uploads) or `php-5.6-community-backport.patch` (minimal). **Test first.** |
 
 ---
@@ -137,7 +139,7 @@ systemctl restart 'php8.*-fpm'
 apt-get install hestia-php && systemctl restart hestia
 ```
 
-### B. PHP 7.4 / 8.0 / 8.1 — build patched
+### B. PHP 7.2 / 7.3 / 7.4 / 8.0 / 8.1 — build patched
 
 ```bash
 apt-get install -y build-essential autoconf bison re2c pkg-config \
@@ -146,9 +148,14 @@ apt-get install -y build-essential autoconf bison re2c pkg-config \
 
 # Enhanced (recommended if you need working upload progress / OpenCart forms):
 ./build/build-patched-php.sh 7.4.33 patches/php-7.4-enhanced-universal.patch /opt/php-7.4-patched
+# Or for PHP 7.3.33 / 7.2.34:
+./build/build-patched-php.sh 7.3.33 patches/php-7.3-enhanced-universal.patch /opt/php-7.3-patched
+./build/build-patched-php.sh 7.2.34 patches/php-7.2-enhanced-universal.patch /opt/php-7.2-patched
 
-# Or minimal (official, disables upload progress):
+# Or minimal (official approach, disables upload progress):
 ./build/build-patched-php.sh 7.4.33 patches/php-7.4-minimal.patch /opt/php-7.4-patched
+./build/build-patched-php.sh 7.3.33 patches/php-7.3-minimal.patch /opt/php-7.3-patched
+./build/build-patched-php.sh 7.2.34 patches/php-7.2-minimal.patch /opt/php-7.2-patched
 ```
 
 Then switch HestiaCP FPM pools / templates to the new binary, or install
