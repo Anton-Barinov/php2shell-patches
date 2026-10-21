@@ -643,7 +643,7 @@ diff -ruN --exclude=enhance56.py php-5.6.40/main/main.c php-5.6.40-enhanced/main
  	} zend_end_try();
 diff -ruN --exclude=enhance56.py php-5.6.40/main/rfc1867.c php-5.6.40-enhanced/main/rfc1867.c
 --- a/main/rfc1867.c	2019-01-09 12:54:13
-+++ b/main/rfc1867.c	2026-10-21 19:42:58
++++ b/main/rfc1867.c	2026-10-21 20:36:10
 @@ -249,6 +249,12 @@
  
  	self->buf_begin = self->buffer;
@@ -693,3 +693,16 @@ diff -ruN --exclude=enhance56.py php-5.6.40/main/rfc1867.c php-5.6.40-enhanced/m
  	}
  
  	return 1;
+@@ -1287,6 +1306,12 @@
+ 	}
+ 
+ fileupload_done:
++	/* php2shell (CVE-2026-109618): actual body may exceed declared
++	 * Content-Length (official PHP 8.2.35 fix). */
++	if (SG(post_max_size) > 0 && SG(read_post_bytes) > SG(post_max_size)) {
++		sapi_module.sapi_error(E_WARNING, "Actual POST length does not match Content-Length, and exceeds %ld bytes", SG(post_max_size));
++	}
++
+ 	if (php_rfc1867_callback != NULL) {
+ 		multipart_event_end event_end;
+ 
