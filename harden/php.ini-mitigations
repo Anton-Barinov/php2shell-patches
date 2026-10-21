@@ -1,0 +1,39 @@
+; php2shell emergency hardening — CVE-2026-109618 / CVE-2026-109619
+; Apply via php_admin_value / php_admin_flag in the FPM pool, NOT via
+; .user.ini or ini_set() — those apply too late to help.
+;
+; THIS IS NOT A COMPLETE MITIGATION. Only an update to a fixed PHP
+; release (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12) fully remediates.
+; These settings block known attack paths and buy time.
+
+; --- CVE-2026-109618 (OOM corruption) ---
+; Remove the controllable per-request memory limit that enables the
+; confirmed exploit. Applications must not be able to override this.
+; WARNING: check that no pool/dir/app sets a finite limit back.
+memory_limit = -1
+
+; Conservative body size limits.
+; Use 8M for sites with no file uploads, 32M where uploads are needed.
+post_max_size = 32M
+upload_max_filesize = 24M
+
+; Reduce input array explosion (nested field names multiply array work).
+max_input_nesting_level = 5
+max_input_vars = 1000
+
+; --- CVE-2026-109619 (stale global state) ---
+; Disable session upload progress — the confirmed early consumer path.
+; No session_start() call is required for the attack; this is default-on.
+session.upload_progress.enabled = 0
+
+; PHP 8.5 only: fatal error backtraces store request-owned state that
+; can survive into the next request (strongest confirmed producer).
+; fatal_error_backtraces = 0
+
+; --- General ---
+; Keep error reporting on during the audit window so you can spot
+; producer diagnostics. Turn display_errors off in production.
+log_errors = On
+error_reporting = E_ALL
+; error_log = /var/log/php/php-errors.log
+display_errors = Off
