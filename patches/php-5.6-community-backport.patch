@@ -14,7 +14,7 @@ diff -ruN a/Zend/zend_alloc.c b/Zend/zend_alloc.c
  	}
  }
  
-+ZEND_API ZEND_COLD ZEND_NORETURN void zend_mm_safe_error_ex(const char *format, ...)
++ZEND_API void zend_mm_safe_error_ex(const char *format, ...)
 +{
 +	const char *error_filename = NULL;
 +	uint error_lineno = 0;
@@ -183,7 +183,7 @@ diff -ruN a/Zend/zend_alloc.h b/Zend/zend_alloc.h
  ZEND_API size_t zend_memory_usage(int real_usage TSRMLS_DC);
  ZEND_API size_t zend_memory_peak_usage(int real_usage TSRMLS_DC);
  
-+ZEND_API ZEND_COLD ZEND_NORETURN void zend_mm_safe_error_ex(const char *format, ...);
++ZEND_API void zend_mm_safe_error_ex(const char *format, ...);
 +
  END_EXTERN_C()
  

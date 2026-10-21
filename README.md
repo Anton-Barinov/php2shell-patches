@@ -144,19 +144,43 @@ alongside system PHP and migrate domains one at a time.
 ### C. PHP 5.6 — last resort
 
 ```bash
+# Sources: use the GitHub tag (museum.php.net may time out)
+curl -L -o php-5.6.40.tar.gz https://github.com/php/php-src/archive/refs/tags/php-5.6.40.tar.gz
+mkdir php-5.6 && tar xzf php-5.6.40.tar.gz -C php-5.6 --strip-components=1
+cd php-5.6
+./buildconf --force          # GitHub tags ship without a configure script
+
 # Enhanced (recommended — root-cause UAF fix, keeps upload progress / forms):
-./build/build-patched-php.sh 5.6.40 patches/php-5.6-enhanced-universal.patch /opt/php-5.6-patched
+patch -p1 < ../patches/php-5.6-enhanced-universal.patch
+./configure --prefix=/opt/php-5.6-patched --disable-cgi --enable-fpm \
+    --without-openssl --with-zlib --enable-mbstring --with-sqlite3 \
+    --with-pdo-sqlite --enable-session --with-gettext --enable-sockets \
+    --without-curl --without-pear --disable-phpdbg
+make -j"$(nproc)"
 
 # Or minimal (force-disables upload progress):
-./build/build-patched-php.sh 5.6.40 patches/php-5.6-community-backport.patch /opt/php-5.6-patched
+patch -p1 < ../patches/php-5.6-community-backport.patch
+# ... same configure/make
 ```
 
+**Build troubleshooting (PHP 5.6 on modern toolchains):**
+
+| Problem | Cause | Fix |
+|---|---|---|
+| `curl: (28) Failed to connect to museum.php.net` | mirror timeout | Use the GitHub tag URL above |
+| `./configure: No such file or directory` | GitHub tags have no generated configure | Run `./buildconf --force` first (needs autoconf) |
+| `configure: error: ... libcurl ... easy.h` | `libcurl4-openssl-dev` missing | `apt-get install libcurl4-openssl-dev` **or** drop `--with-curl` |
+| `unknown type name 'ZEND_COLD'` / `'ZEND_NORETURN'` | These macros don't exist in PHP 5.6 (added in PHP 7) | **Already fixed in both 5.6 patches** — declaration is plain `ZEND_API void` |
+| `unknown type name 'zend_long'` | `zend_long` added in PHP 7.0 | **Already fixed in enhanced 5.6 patch** — uses `long` |
+
 Community adaptation of the official minimal approach (plus root-cause UAF
-fix for the enhanced flavor). Applies cleanly to `php-5.6.40`; **not
-validated by the PHP Group**. You must `make test`, smoke-test uploads, and
-keep a rollback binary. **Migrating off 5.6 is the real answer** — this is
-a stopgap for legacy apps (old OpenCart 1.x/2.x, custom CMS) you cannot
-move today.
+fix for the enhanced flavor). Applies cleanly to `php-5.6.40`; compile-tested
+on Ubuntu 22.04 (make OK, multipart uploads + `is_uploaded_file()` verified,
+`session.upload_progress.enabled` stays On with the enhanced patch).
+**Not validated by the PHP Group.** You must still run `make test`,
+smoke-test your apps, and keep a rollback binary. **Migrating off 5.6 is
+the real answer** — this is a stopgap for legacy apps (old OpenCart 1.x/2.x,
+custom CMS) you cannot move today.
 
 ### D. Cannot update right now — harden
 
@@ -242,10 +266,20 @@ inventory/
 
 ## Tested environments (OpenCart / HestiaCP)
 
-Built and smoke-tested on PHP 7.4.33 (Ubuntu 22.04, HestiaCP 1.10.5):
+**PHP 5.6.40 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
+- ✅ `patch -p1` applies cleanly on pristine `php-5.6.40` (GitHub tag)
+- ✅ `buildconf --force` + `configure` + `make -j2` → success, binary runs
 - ✅ `multipart/form-data` POST with fields + file upload works
   (`$_POST`, `$_FILES`, `is_uploaded_file()` all correct)
+- ✅ `session.upload_progress.enabled => On` (stays enabled — root-cause fix)
+- ⬜ `make test` — pending
+
+**PHP 7.4.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
+
+- ✅ `patch -p1` applies cleanly on pristine `php-7.4.33`
+- ✅ `configure` + `make -j2` → success, binary runs
+- ✅ `multipart/form-data` POST with fields + file upload works
 - ✅ Enhanced patch: session upload progress still functional
 - ✅ Binary starts, `php -v` / `php -m` / `php -i` OK
 

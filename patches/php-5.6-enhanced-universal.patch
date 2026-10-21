@@ -1,6 +1,6 @@
 diff -ruN --exclude=enhance56.py php-5.6.40/Zend/zend_alloc.c php-5.6.40-enhanced/Zend/zend_alloc.c
 --- a/Zend/zend_alloc.c	2019-01-09 12:54:13
-+++ b/Zend/zend_alloc.c	2026-10-21 18:37:18
++++ b/Zend/zend_alloc.c	2026-10-21 18:49:05
 @@ -91,7 +91,7 @@
  #if ZEND_DEBUG && defined(HAVE_KILL) && defined(HAVE_GETPID)
  	kill(getpid(), SIGSEGV);
@@ -14,7 +14,7 @@ diff -ruN --exclude=enhance56.py php-5.6.40/Zend/zend_alloc.c php-5.6.40-enhance
  	}
  }
  
-+ZEND_API ZEND_COLD ZEND_NORETURN void zend_mm_safe_error_ex(const char *format, ...)
++ZEND_API void zend_mm_safe_error_ex(const char *format, ...)
 +{
 +	const char *error_filename = NULL;
 +	uint error_lineno = 0;
@@ -178,29 +178,29 @@ diff -ruN --exclude=enhance56.py php-5.6.40/Zend/zend_alloc.c php-5.6.40-enhance
  }
 diff -ruN --exclude=enhance56.py php-5.6.40/Zend/zend_alloc.h php-5.6.40-enhanced/Zend/zend_alloc.h
 --- a/Zend/zend_alloc.h	2019-01-09 12:54:13
-+++ b/Zend/zend_alloc.h	2026-10-21 18:37:18
++++ b/Zend/zend_alloc.h	2026-10-21 18:48:19
 @@ -161,6 +161,8 @@
  ZEND_API size_t zend_memory_usage(int real_usage TSRMLS_DC);
  ZEND_API size_t zend_memory_peak_usage(int real_usage TSRMLS_DC);
  
-+ZEND_API ZEND_COLD ZEND_NORETURN void zend_mm_safe_error_ex(const char *format, ...);
++ZEND_API void zend_mm_safe_error_ex(const char *format, ...);
 +
  END_EXTERN_C()
  
  /* fast cache for zval's */
 diff -ruN --exclude=enhance56.py php-5.6.40/ext/session/php_session.h php-5.6.40-enhanced/ext/session/php_session.h
 --- a/ext/session/php_session.h	2019-01-09 12:54:13
-+++ b/ext/session/php_session.h	2026-10-21 18:37:18
++++ b/ext/session/php_session.h	2026-10-21 18:47:51
 @@ -112,10 +112,10 @@
  	size_t    content_length;
  
  	zval      *data;                 /* the array exported to session data */
 -	zval      *post_bytes_processed; /* data["bytes_processed"] */
-+	zend_long  post_bytes_processed;
++	long       post_bytes_processed;
  	zval      *files;                /* data["files"] array */
  	zval      *current_file;         /* array of currently uploading file */
 -	zval      *current_file_bytes_processed;
-+	zend_long  current_file_bytes_processed;
++	long       current_file_bytes_processed;
  } php_session_rfc1867_progress;
  
  typedef struct _php_ps_globals {
