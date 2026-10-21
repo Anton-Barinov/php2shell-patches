@@ -1,5 +1,7 @@
 # php2shell patches — CVE-2026-109618 / CVE-2026-109619 for old PHP (5.6–8.1) & OpenCart / HestiaCP
 
+[![CI](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml/badge.svg)](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml)
+
 Emergency backports and hardening for **CVE-2026-109618** and **CVE-2026-109619**
 ("php2shell") — two critical unauthenticated RCE vulnerabilities in PHP,
 CVSS v4.0 **9.2**. Fixed upstream 21 Oct 2026 (PHP 8.5.12 / 8.4.27 / 8.3.36 /
