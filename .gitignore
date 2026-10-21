@@ -1,0 +1,5 @@
+
+# Never commit server details / agent state to public repo
+PROGRESS.md
+REPORT.md
+.ssh-helpers/
