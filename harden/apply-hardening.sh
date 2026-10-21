@@ -19,8 +19,15 @@ echo "=== php2shell hardening ==="
 echo
 
 # 1. hestia-php (panel) — its php.ini
-HESTIA_PHP_INI="/usr/local/hestia/php/etc/php.ini"
-if [ -f "$HESTIA_PHP_INI" ]; then
+HESTIA_PHP_INI=""
+for candidate in "/usr/local/hestia/php/lib/php.ini" "/usr/local/hestia/php/etc/php.ini"; do
+    if [ -f "$candidate" ]; then
+        HESTIA_PHP_INI="$candidate"
+        break
+    fi
+done
+
+if [ -n "$HESTIA_PHP_INI" ]; then
     if ! grep -q 'php2shell' "$HESTIA_PHP_INI"; then
         echo "--> Hardening $HESTIA_PHP_INI"
         cp -a "$HESTIA_PHP_INI" "${HESTIA_PHP_INI}.bak-php2shell-$(date +%s)"
