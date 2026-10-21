@@ -172,6 +172,8 @@ patch -p1 < ../patches/php-5.6-community-backport.patch
 | `configure: error: ... libcurl ... easy.h` | `libcurl4-openssl-dev` missing | `apt-get install libcurl4-openssl-dev` **or** drop `--with-curl` |
 | `unknown type name 'ZEND_COLD'` / `'ZEND_NORETURN'` | These macros don't exist in PHP 5.6 (added in PHP 7) | **Already fixed in both 5.6 patches** — declaration is plain `ZEND_API void` |
 | `unknown type name 'zend_long'` | `zend_long` added in PHP 7.0 | **Already fixed in enhanced 5.6 patch** — uses `long` |
+| `re2c: command not found` during `make` | The patch updates `var_unserializer.re`, so make regenerates `var_unserializer.c` from it | `apt-get install re2c` **or** `touch ext/standard/var_unserializer.c` (the patch already ships the generated `.c`) |
+| `'*var_hash' is a pointer` (compile error in `var.c`) | You downloaded a stale copy of the enhanced 5.6 patch (before fix `a6c3d04`) | `git pull` — always use the latest patch from this repo |
 
 Community adaptation of the official minimal approach (plus root-cause UAF
 fix for the enhanced flavor). Applies cleanly to `php-5.6.40`; compile-tested
