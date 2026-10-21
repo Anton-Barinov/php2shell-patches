@@ -80,7 +80,7 @@ stays enabled.
 ### enhanced-universal (community — root-cause fix, keeps progress bars)
 
 Takes everything from minimal **except** step 2, and replaces it with a
-root-cause fix plus three extra hardenings:
+root-cause fix plus extra hardenings:
 
 1. **OOM bailout → `_exit(1)`** — same as minimal (CVE-2026-109618).
 2. **Counters as `zend_long` + `php_session_rfc1867_sync_counters()`**
@@ -102,12 +102,26 @@ root-cause fix plus three extra hardenings:
 5. **Reset `PS(serializer)` between requests** (`ext/session/session.c`) —
    prevents cross-request handler mismatch in PHP-FPM.
 6. **Multipart header limiting + global resets** — same as minimal.
+7. **Chain-C decode window closed** (`ext/standard/var.c`,
+   `ext/standard/var_unserializer.re`, `php_incomplete_class.h`,
+   `ext/session/session.c`) — during the session upload-progress decode
+   (which runs before user code/classes can exist), never look up classes:
+   no autoload, no `unserialize_callback_func`, no `__wakeup` — only
+   `__PHP_Incomplete_Class`, with a lossless raw-payload round-trip for
+   `C:` custom serializers. (Attack chains from
+   [ikow/php2shell-poc](https://github.com/ikow/php2shell-poc).)
+8. **`post_max_size` bypass fixed** (`main/rfc1867.c`) — the official
+   GHSA-2cv3-554h-jpmh fix from PHP 8.2.35: stop reading the multipart
+   body once `read_post_bytes` exceeds `post_max_size` when Content-Length
+   is absent or lying, plus the matching "Actual POST length does not match
+   Content-Length" warning. (Verified with `tests/feedpost/`: a 1 MB body
+   with `post_max_size=100K` — pre-patch build accepted all 1 048 576
+   bytes, patched build truncates and warns.)
 
-> The enhanced patch does **not** try to close the `var_destroy`
-> unserialize UAF (Chain B in ikow's research) — that requires changes to
-> `var_unserializer.re` and is only reachable if the application exposes
-> `unserialize()` to attacker data. Update to a fixed PHP release to close
-> that path completely.
+> The enhanced patch does **not** close the `var_destroy`
+> unserialize UAF (Chain B in ikow's research) — it is only reachable if
+> the application exposes `unserialize()` to attacker data. Update to a
+> fixed PHP release to close that path completely.
 
 ---
 
@@ -262,6 +276,11 @@ build/
   build-patched-php.sh               # download + patch + configure + make install
 inventory/
   scan-php-versions.sh               # per-host PHP version inventory
+tests/
+  feedpost/                          # post_max_size bypass verification harness
+                                     # (phpize ext for PHP 5.6: feeds a multipart
+                                     #  body with missing Content-Length, see
+                                     #  tests/feedpost/README.md)
 ```
 
 ---
@@ -270,12 +289,27 @@ inventory/
 
 **PHP 5.6.40 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
-- ✅ `patch -p1` applies cleanly on pristine `php-5.6.40` (GitHub tag)
+- ✅ `patch -p1` applies cleanly on pristine `php-5.6.40`
+  (official php.net tarball **and** GitHub tag archive)
 - ✅ `buildconf --force` + `configure` + `make -j2` → success, binary runs
 - ✅ `multipart/form-data` POST with fields + file upload works
   (`$_POST`, `$_FILES`, `is_uploaded_file()` all correct)
 - ✅ `session.upload_progress.enabled => On` (stays enabled — root-cause fix)
-- ⬜ `make test` — pending
+- ✅ `make test` (1373 tests: ext/session, serialize, file,
+  general_functions, main): **1106 pass / 245 skip / 20 fail / 2 warn** —
+  result byte-identical to the pre-enhancement build (same 20
+  pre-existing fails, zero regressions from the new fixes)
+- ✅ `post_max_size` bypass (GHSA-2cv3-554h-jpmh) — via the
+  `tests/feedpost/` harness (missing Content-Length, 1 MB multipart,
+  `post_max_size=100K`): pre-patch build accepts all **1 048 576** bytes,
+  patched build truncates to **102 381** and emits the official
+  "Actual POST length does not match Content-Length" warning
+- ✅ Upload-progress decode window (CVE-2026-109619) — session file seeded
+  `Evill|O:5:"Evill":0:{}`, `unserialize_callback_func=var_dump`, upload via
+  `PHP_SESSION_UPLOAD_PROGRESS` field: pre-patch build runs user code
+  during upload (`string(5) "Evill"` ×2 in the response); patched build
+  emits nothing, still writes the progress key, and re-encodes the seeded
+  payload losslessly; `__wakeup` never fires
 
 **PHP 7.4.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
