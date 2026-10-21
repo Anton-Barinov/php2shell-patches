@@ -338,6 +338,36 @@ tests/
   `rfc1867_no_user_code`, `rfc1867_incomplete_class_reserved_props`
   all FAIL on v1 and PASS on the current build
 
+**PHP 8.0.30 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
+
+- ✅ `patch -p1` applies cleanly on pristine `php-8.0.30` (26 files)
+- ✅ `configure` + `make -j4` → success, binary runs (php, php-cgi)
+- ✅ `multipart/form-data` POST with fields + file upload works
+- ✅ Enhanced patch at official PHP 8.2.35 parity: chain-C refusal,
+  `php_check_cancel_upload`, `post_max_size` "Actual POST length" warning
+  at fileupload_done, per-file byte sync, `$_SESSION` dropped after the
+  upload (same as the official fix)
+- ✅ `Zend/zend_vm_execute.h` guards applied as a script-driven patch
+  (17 length guards + 17 op1 guards + 34 `zend_mm_safe_error_ex` calls,
+  byte-for-byte parity with the 7.4 enhanced tree) — regenerating the file
+  with `zend_vm_gen.php` from a newer PHP breaks the VM kind selection
+- ✅ Official 8.2.35 test suite (adapted): `rfc1867.phpt`,
+  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`,
+  `rfc1867_sid_invalid.phpt` (expectations updated to the official 8.2.35
+  post-fix behaviour: `$_SESSION` is `NULL` after the upload) — all PASS
+  under php-cgi
+- ✅ `make test` subset (1516 tests: ext/session, serialize, file,
+  general_functions, main; php-cgi tests skipped): **1182 pass /
+  333 skip / 0 fail / 2 xfail**
+- ✅ php-cgi tests: `bug72940`, `rfc1867_sid_{cookie,get,post}` PASS
+- ✅ `post_max_size` bypass (GHSA-2cv3-554h-jpmh) — via the
+  `tests/feedpost/` harness (missing Content-Length): pristine build
+  accepts the whole body silently (`LEN=500`), patched build emits the
+  official "Actual POST length does not match Content-Length" warning
+- ✅ Discriminator vs pristine stock 8.0.30: `rfc1867_no_user_code`,
+  `rfc1867_incomplete_class_reserved_props`, `rfc1867_sid_invalid`
+  all FAIL on stock and PASS on the patched build
+
 Typical fleet this targets: OpenCart 2.x/3.x on PHP 5.6/7.0–7.3,
 HestiaCP / VestaCP panels, Debian 10/11 and Ubuntu 18.04/20.04/22.04
 hosts that cannot jump straight to PHP 8.2+.
