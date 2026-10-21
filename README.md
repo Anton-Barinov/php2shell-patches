@@ -53,7 +53,7 @@ stays enabled.
 | 8.0.x | ⚠️ backport | `php-8.0-minimal.patch` (PHP group) — enhanced coming soon |
 | 7.4.x | ⚠️ backport | `php-7.4-minimal.patch` (official) **or** `php-7.4-enhanced-universal.patch` |
 | 7.0 – 7.3 | ❌ none | **migrate**, or apply hardening + consider the 7.4 enhanced patch after testing (may need small tweaks) |
-| 5.6.x | ❌ none | **migrate**. Community backport: `php-5.6-community-backport.patch` (minimal) — enhanced variant in progress. **Test first.** |
+| 5.6.x | ❌ none | **migrate**. Community backport: `php-5.6-enhanced-universal.patch` (recommended — root-cause fix, keeps uploads) or `php-5.6-community-backport.patch` (minimal). **Test first.** |
 
 ---
 
@@ -144,14 +144,19 @@ alongside system PHP and migrate domains one at a time.
 ### C. PHP 5.6 — last resort
 
 ```bash
+# Enhanced (recommended — root-cause UAF fix, keeps upload progress / forms):
+./build/build-patched-php.sh 5.6.40 patches/php-5.6-enhanced-universal.patch /opt/php-5.6-patched
+
+# Or minimal (force-disables upload progress):
 ./build/build-patched-php.sh 5.6.40 patches/php-5.6-community-backport.patch /opt/php-5.6-patched
 ```
 
-Community adaptation of the official minimal approach. Applies cleanly to
-`php-5.6.40`; **not validated by the PHP Group**. You must `make test`,
-smoke-test uploads, and keep a rollback binary. **Migrating off 5.6 is
-the real answer** — this is a stopgap for legacy apps (old OpenCart 1.x/2.x,
-custom CMS) you cannot move today.
+Community adaptation of the official minimal approach (plus root-cause UAF
+fix for the enhanced flavor). Applies cleanly to `php-5.6.40`; **not
+validated by the PHP Group**. You must `make test`, smoke-test uploads, and
+keep a rollback binary. **Migrating off 5.6 is the real answer** — this is
+a stopgap for legacy apps (old OpenCart 1.x/2.x, custom CMS) you cannot
+move today.
 
 ### D. Cannot update right now — harden
 
@@ -221,7 +226,8 @@ patches/
   php-7.4-enhanced-universal.patch   # community: root-cause UAF fix + fixation/filename/serializer, keeps progress bars
   php-8.0-minimal.patch              # official PHP-group minimal backport
   php-8.1-minimal.patch              # official PHP-group minimal backport
-  php-5.6-community-backport.patch   # community minimal for 5.6 — TEST FIRST
+  php-5.6-enhanced-universal.patch   # community enhanced for 5.6: root-cause UAF fix + fixation/filename/serializer, keeps progress bars
+  php-5.6-community-backport.patch   # community minimal for 5.6 (force-disable) — TEST FIRST
 harden/
   php.ini-mitigations                # annotated php.ini snippet
   fpm-pool-snippet.conf              # lines to append to FPM pools

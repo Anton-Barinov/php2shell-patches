@@ -1,0 +1,431 @@
+diff -ruN --exclude=enhance56.py php-5.6.40/Zend/zend_alloc.c php-5.6.40-enhanced/Zend/zend_alloc.c
+--- a/Zend/zend_alloc.c	2019-01-09 12:54:13
++++ b/Zend/zend_alloc.c	2026-10-21 18:37:18
+@@ -91,7 +91,7 @@
+ #if ZEND_DEBUG && defined(HAVE_KILL) && defined(HAVE_GETPID)
+ 	kill(getpid(), SIGSEGV);
+ #endif
+-	exit(1);
++	_exit(1);
+ }
+ 
+ /*******************/
+@@ -1740,6 +1740,37 @@
+ 	}
+ }
+ 
++ZEND_API ZEND_COLD ZEND_NORETURN void zend_mm_safe_error_ex(const char *format, ...)
++{
++	const char *error_filename = NULL;
++	uint error_lineno = 0;
++	TSRMLS_FETCH();
++
++	if (zend_is_compiling(TSRMLS_C)) {
++		error_filename = zend_get_compiled_filename(TSRMLS_C);
++		error_lineno = zend_get_compiled_lineno(TSRMLS_C);
++	} else if (EG(in_execution)) {
++		error_filename = EG(active_op_array) ? EG(active_op_array)->filename : NULL;
++		error_lineno = EG(opline_ptr) ? (*EG(opline_ptr))->lineno : 0;
++	}
++	if (!error_filename) {
++		error_filename = "Unknown";
++	}
++
++	{
++		va_list args;
++		va_start(args, format);
++		fprintf(stderr, "\nFatal error: ");
++		vfprintf(stderr, format, args);
++		va_end(args);
++		fprintf(stderr, " in %s on line %u\n", error_filename, error_lineno);
++	}
++#ifdef PHP_WIN32
++	fflush(stderr);
++#endif
++	_exit(1);
++}
++
+ static void zend_mm_safe_error(zend_mm_heap *heap,
+ 	const char *format,
+ 	size_t limit,
+@@ -1749,59 +1780,13 @@
+ #endif
+ 	size_t size)
+ {
+-	if (heap->reserve) {
+-		_zend_mm_free_int(heap, heap->reserve ZEND_FILE_LINE_CC ZEND_FILE_LINE_EMPTY_CC);
+-		heap->reserve = NULL;
+-	}
+-	if (heap->overflow == 0) {
+-		const char *error_filename;
+-		uint error_lineno;
+-		TSRMLS_FETCH();
+-		if (zend_is_compiling(TSRMLS_C)) {
+-			error_filename = zend_get_compiled_filename(TSRMLS_C);
+-			error_lineno = zend_get_compiled_lineno(TSRMLS_C);
+-		} else if (EG(in_execution)) {
+-			error_filename = EG(active_op_array)?EG(active_op_array)->filename:NULL;
+-			error_lineno = EG(opline_ptr)?(*EG(opline_ptr))->lineno:0;
+-		} else {
+-			error_filename = NULL;
+-			error_lineno = 0;
+-		}
+-		if (!error_filename) {
+-			error_filename = "Unknown";
+-		}
+-		heap->overflow = 1;
+-		zend_try {
+-			zend_error_noreturn(E_ERROR,
+-				format,
+-				limit,
++	(void) heap;
++	zend_mm_safe_error_ex(format, limit,
+ #if ZEND_DEBUG
+-				filename,
+-				lineno,
++		filename,
++		lineno,
+ #endif
+-				size);
+-		} zend_catch {
+-			if (heap->overflow == 2) {
+-				fprintf(stderr, "\nFatal error: ");
+-				fprintf(stderr,
+-					format,
+-					limit,
+-#if ZEND_DEBUG
+-					filename,
+-					lineno,
+-#endif
+-					size);
+-				fprintf(stderr, " in %s on line %d\n", error_filename, error_lineno);
+-			}
+-/* See http://support.microsoft.com/kb/190351 */
+-#ifdef PHP_WIN32
+-			fflush(stderr);
+-#endif
+-		} zend_end_try();
+-	} else {
+-		heap->overflow = 2;
+-	}
+-	zend_bailout();
++		size);
+ }
+ 
+ static zend_mm_free_block *zend_mm_search_large_block(zend_mm_heap *heap, size_t true_size)
+@@ -2472,7 +2457,7 @@
+ 	       "rm"(offset));
+ 
+ 	if (UNEXPECTED(overflow)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+ 		return 0;
+ 	}
+ 	return res;
+@@ -2501,7 +2486,7 @@
+ 
+ #undef LP_SUFF
+         if (UNEXPECTED(overflow)) {
+-                zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++                zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+                 return 0;
+         }
+         return res;
+@@ -2522,7 +2507,7 @@
+                "1"(0));
+ 
+         if (UNEXPECTED(overflow)) {
+-                zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++                zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+                 return 0;
+         }
+         return res;
+@@ -2542,7 +2527,7 @@
+                "r"(offset));
+ 
+         if (UNEXPECTED(overflow)) {
+-                zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++                zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+                 return 0;
+         }
+         return res;
+@@ -2555,7 +2540,7 @@
+ 	zend_ulong64 res = (zend_ulong64)nmemb * (zend_ulong64)size + (zend_ulong64)offset;
+ 
+ 	if (UNEXPECTED(res > (zend_ulong64)0xFFFFFFFFL)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+ 		return 0;
+ 	}
+ 	return (size_t) res;
+@@ -2570,7 +2555,7 @@
+ 	double _delta = (double)res - _d;
+ 
+ 	if (UNEXPECTED((_d + _delta ) != _d)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+ 		return 0;
+ 	}
+ 	return res;
+@@ -2582,7 +2567,7 @@
+ {
+ 	size_t str_size = safe_address(nmemb, size, offset);
+ 	if (UNEXPECTED(str_size > INT_MAX)) {
+-		zend_error_noreturn(E_ERROR, "String allocation overflow, max size is %d", INT_MAX);
++		zend_mm_safe_error_ex("String allocation overflow, max size is %d", INT_MAX);
+ 	}
+ 	return emalloc_rel(str_size);
+ }
+diff -ruN --exclude=enhance56.py php-5.6.40/Zend/zend_alloc.h php-5.6.40-enhanced/Zend/zend_alloc.h
+--- a/Zend/zend_alloc.h	2019-01-09 12:54:13
++++ b/Zend/zend_alloc.h	2026-10-21 18:37:18
+@@ -161,6 +161,8 @@
+ ZEND_API size_t zend_memory_usage(int real_usage TSRMLS_DC);
+ ZEND_API size_t zend_memory_peak_usage(int real_usage TSRMLS_DC);
+ 
++ZEND_API ZEND_COLD ZEND_NORETURN void zend_mm_safe_error_ex(const char *format, ...);
++
+ END_EXTERN_C()
+ 
+ /* fast cache for zval's */
+diff -ruN --exclude=enhance56.py php-5.6.40/ext/session/php_session.h php-5.6.40-enhanced/ext/session/php_session.h
+--- a/ext/session/php_session.h	2019-01-09 12:54:13
++++ b/ext/session/php_session.h	2026-10-21 18:37:18
+@@ -112,10 +112,10 @@
+ 	size_t    content_length;
+ 
+ 	zval      *data;                 /* the array exported to session data */
+-	zval      *post_bytes_processed; /* data["bytes_processed"] */
++	zend_long  post_bytes_processed;
+ 	zval      *files;                /* data["files"] array */
+ 	zval      *current_file;         /* array of currently uploading file */
+-	zval      *current_file_bytes_processed;
++	zend_long  current_file_bytes_processed;
+ } php_session_rfc1867_progress;
+ 
+ typedef struct _php_ps_globals {
+diff -ruN --exclude=enhance56.py php-5.6.40/ext/session/session.c php-5.6.40-enhanced/ext/session/session.c
+--- a/ext/session/session.c	2019-01-09 12:54:13
++++ b/ext/session/session.c	2026-10-21 18:37:18
+@@ -117,6 +117,10 @@
+ 		efree(PS(id));
+ 		PS(id) = NULL;
+ 	}
++
++	/* php2shell: reset serializer between requests to prevent cross-request
++	 * handler mismatch (CVE-2026-109619 / ikow finding). */
++	PS(serializer) = NULL;
+ }
+ /* }}} */
+ 
+@@ -2621,10 +2625,38 @@
+ 	return Z_TYPE_PP(cancel_upload) == IS_BOOL && Z_LVAL_PP(cancel_upload);
+ } /* }}} */
+ 
++static void php_session_rfc1867_sync_counters(php_session_rfc1867_progress *progress TSRMLS_DC) /* {{{ */
++{
++	zval **entry, **files, **file;
++	HashTable *ht;
++
++	if (!progress->data || Z_TYPE_P(progress->data) != IS_ARRAY) {
++		return;
++	}
++	ht = Z_ARRVAL_P(progress->data);
++
++	/* php2shell: never retain HashTable bucket pointers — publishing progress
++	 * data may separate/replace the exported array (eness root-cause fix).
++	 * Resolve each counter afresh from the live array. */
++	if (zend_hash_find(ht, "bytes_processed", sizeof("bytes_processed"), (void **)&entry) == SUCCESS) {
++		ZVAL_LONG(*entry, progress->post_bytes_processed);
++	}
++	if (zend_hash_find(ht, "files", sizeof("files"), (void **)&files) == SUCCESS
++			&& Z_TYPE_PP(files) == IS_ARRAY
++			&& zend_hash_num_elements(Z_ARRVAL_PP(files)) > 0) {
++		ulong idx = zend_hash_num_elements(Z_ARRVAL_PP(files)) - 1;
++		if (zend_hash_index_find(Z_ARRVAL_PP(files), idx, (void **)&file) == SUCCESS
++				&& Z_TYPE_PP(file) == IS_ARRAY
++				&& zend_hash_find(Z_ARRVAL_PP(file), "bytes_processed", sizeof("bytes_processed"), (void **)&entry) == SUCCESS) {
++			ZVAL_LONG(*entry, progress->current_file_bytes_processed);
++		}
++	}
++} /* }}} */
++
+ static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, int force_update TSRMLS_DC) /* {{{ */
+ {
+ 	if (!force_update) {
+-		if (Z_LVAL_P(progress->post_bytes_processed) < progress->next_update) {
++		if (progress->post_bytes_processed < progress->next_update) {
+ 			return;
+ 		}
+ #ifdef HAVE_GETTIMEOFDAY
+@@ -2639,9 +2671,10 @@
+ 			progress->next_update_time = dtv + PS(rfc1867_min_freq);
+ 		}
+ #endif
+-		progress->next_update = Z_LVAL_P(progress->post_bytes_processed) + progress->update_step;
++		progress->next_update = progress->post_bytes_processed + progress->update_step;
+ 	}
+ 
++	php_session_rfc1867_sync_counters(progress TSRMLS_CC);
+ 	php_session_initialize(TSRMLS_C);
+ 	PS(session_status) = php_session_active;
+ 	IF_SESSION_VARS() {
+@@ -2669,7 +2702,7 @@
+ 	if (php_session_rfc1867_orig_callback) {
+ 		retval = php_session_rfc1867_orig_callback(event, event_data, extra TSRMLS_CC);
+ 	}
+-	if (!PS(rfc1867_enabled)) {
++	if (!PS(rfc1867_enabled)) { /* php2shell: force-disable session upload progress (CVE-2026-109618/109619) */
+ 		return retval;
+ 	}
+ 
+@@ -2702,7 +2735,7 @@
+ 			if (data->name && data->value && value_len) {
+ 				size_t name_len = strlen(data->name);
+ 
+-				if (name_len == progress->sname_len && memcmp(data->name, PS(session_name), name_len) == 0) {
++				if (!PS(use_only_cookies) && name_len == progress->sname_len && memcmp(data->name, PS(session_name), name_len) == 0) {
+ 					zval_dtor(&progress->sid);
+ 					ZVAL_STRINGL(&progress->sid, (*data->value), value_len, 1);
+ 
+@@ -2741,15 +2774,14 @@
+ 				ALLOC_INIT_ZVAL(progress->data);
+ 				array_init(progress->data);
+ 
+-				ALLOC_INIT_ZVAL(progress->post_bytes_processed);
+-				ZVAL_LONG(progress->post_bytes_processed, data->post_bytes_processed);
++				progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 				ALLOC_INIT_ZVAL(progress->files);
+ 				array_init(progress->files);
+ 
+ 				add_assoc_long_ex(progress->data, "start_time",      sizeof("start_time"),      (long)sapi_get_request_time(TSRMLS_C));
+ 				add_assoc_long_ex(progress->data, "content_length",  sizeof("content_length"),  progress->content_length);
+-				add_assoc_zval_ex(progress->data, "bytes_processed", sizeof("bytes_processed"), progress->post_bytes_processed);
++				add_assoc_long_ex(progress->data, "bytes_processed", sizeof("bytes_processed"), progress->post_bytes_processed);
+ 				add_assoc_bool_ex(progress->data, "done",            sizeof("done"),            0);
+ 				add_assoc_zval_ex(progress->data, "files",           sizeof("files"),           progress->files);
+ 
+@@ -2762,22 +2794,37 @@
+ 			ALLOC_INIT_ZVAL(progress->current_file);
+ 			array_init(progress->current_file);
+ 
+-			ALLOC_INIT_ZVAL(progress->current_file_bytes_processed);
+-			ZVAL_LONG(progress->current_file_bytes_processed, 0);
++			progress->current_file_bytes_processed = 0;
+ 
+ 			/* Each uploaded file has its own array. Trying to make it close to $_FILES entries. */
+ 			add_assoc_string_ex(progress->current_file, "field_name",    sizeof("field_name"),      data->name, 1);
+-			add_assoc_string_ex(progress->current_file, "name",          sizeof("name"),            *data->filename, 1);
++			/* php2shell: sanitize filename before storing in session (blocks
++			 * session-file injection via LFI / handler-mismatch, ikow Chain A/C). */
++			{
++				char *safe_name = estrndup(*data->filename, strlen(*data->filename));
++				size_t fi, fj = 0;
++				size_t nlen = strlen(*data->filename);
++				for (fi = 0; fi < nlen && fj < 255; fi++) {
++					unsigned char c = (unsigned char)safe_name[fi];
++					if (c == '\0' || c == '|' || c == '\r' || c == '\n') {
++						continue;
++					}
++					safe_name[fj++] = (char)c;
++				}
++				safe_name[fj] = '\0';
++				add_assoc_string_ex(progress->current_file, "name", sizeof("name"), safe_name, 1);
++				efree(safe_name);
++			}
+ 			add_assoc_null_ex(progress->current_file, "tmp_name",        sizeof("tmp_name"));
+ 			add_assoc_long_ex(progress->current_file, "error",           sizeof("error"),           0);
+ 
+ 			add_assoc_bool_ex(progress->current_file, "done",            sizeof("done"),            0);
+ 			add_assoc_long_ex(progress->current_file, "start_time",      sizeof("start_time"),      (long)time(NULL));
+-			add_assoc_zval_ex(progress->current_file, "bytes_processed", sizeof("bytes_processed"), progress->current_file_bytes_processed);
++			add_assoc_long_ex(progress->current_file, "bytes_processed", sizeof("bytes_processed"), progress->current_file_bytes_processed);
+ 
+ 			add_next_index_zval(progress->files, progress->current_file);
+ 
+-			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++			progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 			php_session_rfc1867_update(progress, 0 TSRMLS_CC);
+ 		}
+@@ -2789,8 +2836,8 @@
+ 				break;
+ 			}
+ 
+-			Z_LVAL_P(progress->current_file_bytes_processed) = data->offset + data->length;
+-			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++			progress->current_file_bytes_processed = data->offset + data->length;
++			progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 			php_session_rfc1867_update(progress, 0 TSRMLS_CC);
+ 		}
+@@ -2808,7 +2855,7 @@
+ 			add_assoc_long_ex(progress->current_file, "error", sizeof("error"), data->cancel_upload);
+ 			add_assoc_bool_ex(progress->current_file, "done",  sizeof("done"),  1);
+ 
+-			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++			progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 			php_session_rfc1867_update(progress, 0 TSRMLS_CC);
+ 		}
+@@ -2821,7 +2868,7 @@
+ 					php_session_rfc1867_cleanup(progress TSRMLS_CC);
+ 				} else {
+ 					add_assoc_bool_ex(progress->data, "done", sizeof("done"), 1);
+-					Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++					progress->post_bytes_processed = data->post_bytes_processed;
+ 					php_session_rfc1867_update(progress, 1 TSRMLS_CC);
+ 				}
+ 				php_rshutdown_session_globals(TSRMLS_C);
+diff -ruN --exclude=enhance56.py php-5.6.40/main/main.c php-5.6.40-enhanced/main/main.c
+--- a/main/main.c	2019-01-09 12:54:13
++++ b/main/main.c	2026-10-21 18:37:18
+@@ -1880,6 +1880,8 @@
+ 		for (i=0; i<NUM_TRACK_VARS; i++) {
+ 			if (PG(http_globals)[i]) {
+ 				zval_ptr_dtor(&PG(http_globals)[i]);
++				/* php2shell (CVE-2026-109619): may be accessed before php_request_startup() */
++				PG(http_globals)[i] = NULL;
+ 			}
+ 		}
+ 	} zend_end_try();
+diff -ruN --exclude=enhance56.py php-5.6.40/main/rfc1867.c php-5.6.40-enhanced/main/rfc1867.c
+--- a/main/rfc1867.c	2019-01-09 12:54:13
++++ b/main/rfc1867.c	2026-10-21 18:37:18
+@@ -400,6 +400,15 @@
+ 	return 0;
+ }
+ 
++/* php2shell (CVE-2026-109618): limit which MIME headers are retained.
++ * An attacker can send a huge number of headers per multipart part; representing
++ * them all in PHP heap can exhaust memory_limit within post_max_size. */
++static zend_bool php_mime_should_save_hdr(const char *name)
++{
++	return !strcasecmp(name, "Content-Disposition")
++		|| !strcasecmp(name, "Content-Type");
++}
++
+ /* parse headers */
+ static int multipart_buffer_headers(multipart_buffer *self, zend_llist *header TSRMLS_DC)
+ {
+@@ -443,7 +452,9 @@
+ 			*value = '\0';
+ 			do { value++; } while(isspace(*value));
+ 
+-			key = estrdup(line);
++			if (php_mime_should_save_hdr(line)) {
++				key = estrdup(line);
++			}
+ 			smart_str_appends(&buf_value, value);
+ 		} else if (buf_value.c) { /* If no ':' on the line, add to previous line */
+ 			smart_str_appends(&buf_value, line);
+@@ -457,6 +468,8 @@
+ 		entry.key = key;
+ 		entry.value = buf_value.c;
+ 		zend_llist_add_element(header, &entry);
++	} else if (buf_value.c) {
++		smart_str_free(&buf_value);
+ 	}
+ 
+ 	return 1;
