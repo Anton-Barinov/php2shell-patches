@@ -375,6 +375,31 @@ tests/
   `rfc1867_incomplete_class_reserved_props`, `rfc1867_sid_invalid`
   all FAIL on stock and PASS on the patched build
 
+**PHP 8.1.34 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
+
+- ✅ `patch -p1` applies cleanly on pristine `php-8.1.34` (25 files)
+- ✅ `configure` + `make -j4` → success, binary runs (php, php-cgi)
+- ✅ `multipart/form-data` POST with fields + file upload works
+- ✅ Enhanced patch at official PHP 8.2.35 parity (chain-C refusal,
+  `post_max_size` warning, `$_SESSION` dropped after the upload, etc.)
+- ✅ `Zend/zend_execute_API.c` adapted to the 8.1 shutdown layout;
+  `zend_llist` head/tail reset already present in stock 8.1;
+  `zend_vm_execute.h` guards verified at parity (17 length + 17 op1
+  guards, 34 `zend_mm_safe_error_ex`)
+- ✅ Official 8.2.35 test suite (adapted): `rfc1867.phpt`,
+  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`,
+  `rfc1867_sid_invalid.phpt` (post-fix expectations) — all PASS under php-cgi
+- ✅ `make test` subset (1542 tests: ext/session, serialize, file,
+  general_functions, main; php-cgi tests skipped): **1200 pass /
+  341 skip / 0 fail / 2 xfail**
+- ✅ php-cgi tests: `bug72940`, `rfc1867_sid_{cookie,get,post}` PASS
+- ✅ `post_max_size` bypass (GHSA-2cv3-554h-jpmh) — via the
+  `tests/feedpost/` harness: pristine build accepts the whole body
+  silently (`LEN=500`), patched build emits the official warning
+- ✅ Discriminator vs pristine stock 8.1.34: `rfc1867_no_user_code`,
+  `rfc1867_incomplete_class_reserved_props`, `rfc1867_sid_invalid`
+  all FAIL on stock and PASS on the patched build
+
 Typical fleet this targets: OpenCart 2.x/3.x on PHP 5.6/7.0–7.3,
 HestiaCP / VestaCP panels, Debian 10/11 and Ubuntu 18.04/20.04/22.04
 hosts that cannot jump straight to PHP 8.2+.
