@@ -51,7 +51,14 @@ CRITICAL_MODULES="filter ctype json mbstring tokenizer phar fileinfo session has
 # php -m also prints section headers and loader banner lines
 # ("[Zend Modules]", "the ioncube php loader + ioncube24", "Zend OPcache") —
 # keep only bare module identifiers for baseline/after comparisons.
-modules_of() { "$@" -m 2>/dev/null | tr -d '*' | tr '[:upper:]' '[:lower:]' | grep -E '^[a-z0-9_]+$' | sort -u; }
+# `--static` adds -n (ignore every ini) to list *compiled-in* modules only:
+# without it php -m also shows modules loaded from packaged .ini files, and
+# a static/packaged distinction made from that list disables the wrong inis.
+modules_of() {
+  local flags=()
+  [ "${1:-}" = "--static" ] && { flags=(-n); shift; }
+  "$@" ${flags[@]+"${flags[@]}"} -m 2>/dev/null | tr -d '*' | tr '[:upper:]' '[:lower:]' | grep -E '^[a-z0-9_]+$' | sort -u
+}
 
 cd "$BUILD_ROOT"
 test -f "php-$VER.tar.xz" || { echo "FATAL: php-$VER.tar.xz missing in $BUILD_ROOT"; exit 1; }
@@ -138,7 +145,7 @@ make -j"$(nproc)"
 # If neither — e.g. `filter`, which the distro keeps compiled in while
 # --disable-all turns it off — the swap breaks every site on that PHP
 # (fatal `Undefined constant "INPUT_GET"` on WordPress/OpenCart => HTTP 500).
-NEW_MODULES="$(modules_of sapi/cli/php)"
+NEW_MODULES="$(modules_of --static sapi/cli/php)"
 UNAVAILABLE=""
 if [ -s "$BASELINE" ]; then
   while IFS= read -r m; do
@@ -178,7 +185,7 @@ printf 'extension_dir=/usr/lib/php/%s\n' "$API" > "/etc/php/$XY/mods-available/0
 
 # modules compiled into the new binary: disable the `extension=` line of the
 # packaged .ini (keep other directives) so nothing loads twice
-for m in $(modules_of sapi/cli/php); do
+for m in $(modules_of --static sapi/cli/php); do
   ini="/etc/php/$XY/mods-available/$m.ini"
   [ -f "$ini" ] || continue
   grep -q '^extension=' "$ini" || continue
