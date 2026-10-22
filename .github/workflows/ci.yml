@@ -73,21 +73,34 @@ jobs:
           echo "Patch ${{ matrix.patch }} applied with 0 rejected hunks!"
 
   validate-remi-backports:
-    name: "Dry-run: PHP 5.6 Remi Collet Security Tree"
+    name: "Dry-run: Remi Collet ${{ matrix.name }}"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "PHP 5.6 Security Tree"
+            branch: "PHP-5.6-security-backports"
+            patch: "patches/php-5.6-enhanced-remicollet.patch"
+          - name: "PHP 7.2 Security Tree"
+            branch: "PHP-7.2-Security-backports"
+            patch: "patches/php-7.2-enhanced-remicollet.patch"
+          - name: "PHP 7.3 Security Tree"
+            branch: "PHP-7.3-security-backports"
+            patch: "patches/php-7.3-enhanced-remicollet.patch"
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Clone Remi Collet security backports
         run: |
-          git clone --depth 1 --branch PHP-5.6-security-backports https://github.com/remicollet/php-src-security.git remi-tree
+          git clone --depth 1 --branch ${{ matrix.branch }} https://github.com/remicollet/php-src-security.git remi-tree
 
       - name: Verify patch dry-run
         run: |
           cd remi-tree
-          patch -p1 --dry-run < ../patches/php-5.6-enhanced-remicollet.patch
-          echo "Remi Collet 5.6 backport patch applied cleanly with 0 rejected hunks!"
+          patch --batch -p1 --dry-run < ../${{ matrix.patch }}
+          echo "Remi Collet ${{ matrix.name }} backport patch applied cleanly with 0 rejected hunks!"
 
   build-and-smoke-test:
     name: "Build: ${{ matrix.name }}"

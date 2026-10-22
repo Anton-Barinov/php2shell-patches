@@ -54,8 +54,8 @@ stays enabled.
 | 8.1.x | ⚠️ backport | `php-8.1-minimal.patch` (PHP group) **or** `php-8.1-enhanced-universal.patch` |
 | 8.0.x | ⚠️ backport | `php-8.0-minimal.patch` (PHP group) **or** `php-8.0-enhanced-universal.patch` |
 | 7.4.x | ⚠️ backport | `php-7.4-minimal.patch` (official) **or** `php-7.4-enhanced-universal.patch` |
-| 7.3.x | ⚠️ backport | `php-7.3-minimal.patch` **or** `php-7.3-enhanced-universal.patch` |
-| 7.2.x | ⚠️ backport | `php-7.2-minimal.patch` **or** `php-7.2-enhanced-universal.patch` |
+| 7.3.x | ⚠️ backport | `php-7.3-minimal.patch` **or** `php-7.3-enhanced-universal.patch` (vanilla php.net) **or** `php-7.3-enhanced-remicollet.patch` (for Remi's tree) |
+| 7.2.x | ⚠️ backport | `php-7.2-minimal.patch` **or** `php-7.2-enhanced-universal.patch` (vanilla php.net) **or** `php-7.2-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.0 – 7.1 | ❌ none | **migrate**, or apply hardening + consider the 7.2 backport patches |
 | 5.6.x | ❌ none | **migrate**. Community backports: `php-5.6-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.6-enhanced-remicollet.patch` (for [remicollet/php-src-security](https://github.com/remicollet/php-src-security) backports tree) or `php-5.6-community-backport.patch` (minimal). **Test first.** |
 
@@ -192,7 +192,11 @@ patch -p1 < ../patches/php-5.6-community-backport.patch
 
 ### Windows Pre-built Binaries
 
-- **PHP 5.6.40 (VC11 x86 NTS)**: Built and packaged with MSVC toolchain by [@Jan-E](https://github.com/Jan-E) (Apache Lounge): [`php-5.6.40-nts-Win32-VC11-x86.zip`](https://phpdev.toolsforresearch.com/php-5.6.40-nts-Win32-VC11-x86.zip)
+Windows x64 and x86 binaries built and packaged with MSVC toolchains by [@Jan-E](https://github.com/Jan-E) (Apache Lounge):
+- **Apache Lounge Release Thread**: [https://www.apachelounge.com/viewtopic.php?t=6359](https://www.apachelounge.com/viewtopic.php?t=6359) (Includes updated x64 builds for PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4, 8.5; 5.6, 7.2, 7.3 builds in progress)
+- **PHP 5.6.40 (VC11 x86 NTS)**: [`php-5.6.40-nts-Win32-VC11-x86.zip`](https://phpdev.toolsforresearch.com/php-5.6.40-nts-Win32-VC11-x86.zip)
+
+> **MSVC / NMake Note:** All enhanced patches (5.6 through 8.1) bundle pre-generated C diffs directly in `ext/standard/var_unserializer.c` alongside `.re`, so building under Windows NMake does not require `re2c`.
 
 **Build troubleshooting (PHP 5.6 on modern toolchains):**
 
@@ -280,9 +284,17 @@ rebuild from known-good.
 ```
 patches/
   php-7.4-minimal.patch              # official PHP-group minimal backport
-  php-7.4-enhanced-universal.patch   # community: root-cause UAF fix + fixation/filename/serializer, keeps progress bars
+  php-7.4-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
   php-8.0-minimal.patch              # official PHP-group minimal backport
+  php-8.0-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
   php-8.1-minimal.patch              # official PHP-group minimal backport
+  php-8.1-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
+  php-7.3-minimal.patch              # backport for PHP 7.3
+  php-7.3-enhanced-universal.patch   # community enhanced for 7.3 (vanilla php.net tarball)
+  php-7.3-enhanced-remicollet.patch  # community enhanced for 7.3: adapted for remicollet tree
+  php-7.2-minimal.patch              # backport for PHP 7.2
+  php-7.2-enhanced-universal.patch   # community enhanced for 7.2 (vanilla php.net tarball)
+  php-7.2-enhanced-remicollet.patch  # community enhanced for 7.2: adapted for remicollet tree
   php-5.6-enhanced-universal.patch   # community enhanced for 5.6: root-cause UAF fix (vanilla php.net tarball)
   php-5.6-enhanced-remicollet.patch  # community enhanced for 5.6: adapted for remicollet/php-src-security tree
   php-5.6-community-backport.patch   # community minimal for 5.6 (force-disable) — TEST FIRST
