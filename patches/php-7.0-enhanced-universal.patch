@@ -672,7 +672,7 @@ diff -ruN orig70/ext/session/session.c patched70/ext/session/session.c
 diff -ruN orig70/ext/session/tests/rfc1867_incomplete_class_reserved_props.phpt patched70/ext/session/tests/rfc1867_incomplete_class_reserved_props.phpt
 --- a/ext/session/tests/rfc1867_incomplete_class_reserved_props.phpt	1970-01-01 03:00:00
 +++ b/ext/session/tests/rfc1867_incomplete_class_reserved_props.phpt	2026-10-22 15:28:26
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,154 @@
 +--TEST--
 +session rfc1867: the upload progress update rejects session data whose objects carry the incomplete class bookkeeping property names
 +--EXTENSIONS--
@@ -762,7 +762,12 @@ diff -ruN orig70/ext/session/tests/rfc1867_incomplete_class_reserved_props.phpt 
 +$cmd[] = '-f';
 +$cmd[] = $worker;
 +
-+$env = getenv();
++$env = array();
++foreach ($_SERVER as $name => $value) {
++    if (is_string($value)) {
++        $env[$name] = $value;
++    }
++}
 +$env['REDIRECT_STATUS'] = '1';
 +$env['REQUEST_METHOD'] = 'POST';
 +$env['CONTENT_TYPE'] = "multipart/form-data; boundary=$boundary";
@@ -825,7 +830,7 @@ diff -ruN orig70/ext/session/tests/rfc1867_incomplete_class_reserved_props.phpt 
 diff -ruN orig70/ext/session/tests/rfc1867_no_user_code.phpt patched70/ext/session/tests/rfc1867_no_user_code.phpt
 --- a/ext/session/tests/rfc1867_no_user_code.phpt	1970-01-01 03:00:00
 +++ b/ext/session/tests/rfc1867_no_user_code.phpt	2026-10-22 15:28:26
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,216 @@
 +--TEST--
 +session rfc1867: the upload progress update resolves no classes, keeps the session data intact and leaves no $_SESSION behind
 +--EXTENSIONS--
@@ -972,7 +977,12 @@ diff -ruN orig70/ext/session/tests/rfc1867_no_user_code.phpt patched70/ext/sessi
 +$cmd[] = '-f';
 +$cmd[] = $worker;
 +
-+$env = getenv();
++$env = array();
++foreach ($_SERVER as $name => $value) {
++    if (is_string($value)) {
++        $env[$name] = $value;
++    }
++}
 +$env['REDIRECT_STATUS'] = '1';
 +$env['REQUEST_METHOD'] = 'POST';
 +$env['CONTENT_TYPE'] = "multipart/form-data; boundary=$boundary";
