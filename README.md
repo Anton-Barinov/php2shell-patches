@@ -57,7 +57,7 @@ stays enabled.
 | 7.3.x | ⚠️ backport | `php-7.3-minimal.patch` **or** `php-7.3-enhanced-universal.patch` (vanilla php.net) **or** `php-7.3-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.2.x | ⚠️ backport | `php-7.2-minimal.patch` **or** `php-7.2-enhanced-universal.patch` (vanilla php.net) **or** `php-7.2-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.1.x | ⚠️ backport | `php-7.1-minimal.patch` **or** `php-7.1-enhanced-universal.patch` (vanilla php.net, contributed by @lovelock) **or** `php-7.1-enhanced-remicollet.patch` (for Remi's tree) |
-| 7.0.x | ❌ none | **migrate**, or apply hardening + consider the 7.1/7.2 backport patches |
+| 7.0.x | ⚠️ backport | `php-7.0-enhanced-universal.patch` (vanilla php.net tarball) |
 | 5.6.x | ❌ none | **migrate**. Community backports: `php-5.6-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.6-enhanced-remicollet.patch` (for [remicollet/php-src-security](https://github.com/remicollet/php-src-security) backports tree) or `php-5.6-community-backport.patch` (minimal). **Test first.** |
 
 ---
