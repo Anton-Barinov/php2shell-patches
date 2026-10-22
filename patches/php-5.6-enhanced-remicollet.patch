@@ -462,8 +462,6 @@ diff -ruN --exclude=enhance56.py php-5.6.40/ext/session/session.c php-5.6.40-enh
  			php_session_rfc1867_update(progress, 0 TSRMLS_CC);
  		}
 @@ -2822,7 +2888,7 @@
- 				if (PS(rfc1867_cleanup)) {
- 					php_session_rfc1867_cleanup(progress TSRMLS_CC);
  				} else {
  					if (progress->data) {
  						add_assoc_bool_ex(progress->data, "done", sizeof("done"), 1);
@@ -472,7 +470,6 @@ diff -ruN --exclude=enhance56.py php-5.6.40/ext/session/session.c php-5.6.40-enh
  						php_session_rfc1867_update(progress, 1 TSRMLS_CC);
  					}
  				}
- 				php_rshutdown_session_globals(TSRMLS_C);
 diff -ruN --exclude=enhance56.py php-5.6.40/ext/standard/php_incomplete_class.h php-5.6.40-enhanced/ext/standard/php_incomplete_class.h
 --- a/ext/standard/php_incomplete_class.h	2019-01-09 12:54:13
 +++ b/ext/standard/php_incomplete_class.h	2026-10-21 19:42:46
