@@ -328,10 +328,32 @@ tests/
 - ✅ `multipart/form-data` POST with fields + file upload works
   (`$_POST`, `$_FILES`, `is_uploaded_file()` all correct)
 - ✅ `session.upload_progress.enabled => On` (stays enabled — root-cause fix)
-- ✅ `make test` (1373 tests: ext/session, serialize, file,
-  general_functions, main): **1106 pass / 245 skip / 20 fail / 2 warn** —
-  result byte-identical to the pre-enhancement build (same 20
-  pre-existing fails, zero regressions from the new fixes)
+- ✅ Enhanced patch at official PHP 8.2.35 parity (v4, 2026-10-22):
+  chain-C refusal (`rfc1867_decode_refused` guard stops
+  `php_session_rfc1867_update()` and `php_session_rfc1867_cleanup()` after a
+  refused decode — a refused decode leaves exactly one warning and the
+  destroyed record stays gone), reserved-props rejection in
+  `var_unserializer` (a record carrying the incomplete-class bookkeeping
+  property names is refused, not silently overwritten), lossless `C:`
+  write-back gated to the upload-progress window only
+  (`php_var_serialize_set_incomplete_classes_only` — a plain `serialize()`
+  of a forged `__PHP_Incomplete_Class_Serialized` property still emits
+  `O:`), `$_SESSION` dropped after the upload, per-file `bytes_processed`
+  counters written at event time
+- ✅ Official 8.2.35 tests adapted for PHP 5.6: `rfc1867_no_user_code.phpt`
+  and `rfc1867_incomplete_class_reserved_props.phpt` (bundled in the patch)
+  plus `incomplete_class_raw_payload_markers.phpt` (regression control) —
+  all PASS under php-cgi; the two rfc1867 tests FAIL on pristine 5.6.40
+  (discriminating). 5.6 adaptations: no `getenv()` without arguments
+  (PHP 7.1+), `implode()`-form `proc_open()` (the array form is 7.4+),
+  heredoc close on a separate line (5.6 rejects `PHP);`), and a
+  non-existent class instead of `ArrayObject` for the incomplete-class
+  case (`unserialize($s, ['allowed_classes'=>...])` is 7.0+)
+- ✅ `make test` subset end-to-end (pristine tarball + this patch → build;
+  1376 tests: ext/session, serialize, file, general_functions, main;
+  php-cgi tests included): **1162 pass / 210 skip / 2 fail / 2 warn** —
+  the 2 fails are the pre-existing `parse_ini_*` cases, identical to the
+  stock build's fail list
 - ✅ `post_max_size` bypass (GHSA-2cv3-554h-jpmh) — via the
   `tests/feedpost/` harness (missing Content-Length, 1 MB multipart,
   `post_max_size=100K`): pre-patch build accepts all **1 048 576** bytes,
