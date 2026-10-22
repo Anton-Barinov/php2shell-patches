@@ -296,3 +296,45 @@ OPENSSL_OPT=--with-openssl=/opt/ssl10 ./swap-system-php.sh 5.6.40 <patch>
 
 Keep the system `libssl-dev` installed for 7.0+ builds — 7.0 compiles
 against 1.1.x as-is.
+
+---
+
+## P10. `mysqli`/`localhost` DB connections break after the swap
+
+**What happens.** Sites keep working on TCP (`127.0.0.1`) but fail whenever
+the app connects with host `localhost`:
+
+```
+PHP Fatal error: Uncaught Exception: Error: Could not make a database
+link using user@localhost! in .../system/library/db/mysqli.php
+```
+
+and the direct test confirms it:
+
+```
+php -r '$m=@mysqli_connect("localhost",...); echo mysqli_connect_error();'
+# → No such file or directory
+php -r '$m=@mysqli_connect("127.0.0.1",...); echo mysqli_connect_error();'
+# → connects fine
+```
+
+**Why.** For host `localhost` mysqlnd uses `mysqli.default_socket`, and when
+that is empty it falls back to the compiled-in `MYSQL_UNIX_PORT`. Distro
+builds are compiled with `--with-mysql-sock=/var/run/mysqld/mysqld.sock`,
+a vanilla build is not — so it tries a path that does not exist
+(`/tmp/mysql.sock`). The distro `php.ini` ships the directive *empty*
+(Debian relies on the compiled default), and the swap's scan-dir ini only
+pinned `extension_dir`.
+
+**Fix.** The swap script pins both directives in the same scan-dir file it
+already writes (scan order runs after `php.ini`, so the value wins):
+
+```
+/etc/php/X.Y/mods-available/00-swap-extension-dir.ini
+    extension_dir=/usr/lib/php/<api>
+    mysqli.default_socket=/var/run/mysqld/mysqld.sock
+    pdo_mysql.default_socket=/var/run/mysqld/mysqld.sock
+```
+
+For hosts already swapped with an older script version, append the two
+`default_socket` lines and `systemctl reload phpX.Y-fpm` — no rebuild needed.

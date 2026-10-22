@@ -186,7 +186,10 @@ perl -pi -e "s#/etc/php/\Q$XY\E/cli#/etc/php/$XY/cgi#" "/usr/bin/php-cgi$XY"
 
 # packaged .so files live in /usr/lib/php/<api>; pin it via scan-dir
 # (overrides php.ini). Watch the expansion: it must be ${EXTDIR##*/} only.
-printf 'extension_dir=/usr/lib/php/%s\n' "$API" > "/etc/php/$XY/mods-available/00-swap-extension-dir.ini"
+# Also pin the mysql unix socket: Debian builds compile it as the binary's
+# default (MYSQL_UNIX_PORT), our vanilla build does not, so 'localhost' DB
+# connections would otherwise fall back to a non-existent /tmp/mysql.sock.
+printf 'extension_dir=/usr/lib/php/%s\nmysqli.default_socket=/var/run/mysqld/mysqld.sock\npdo_mysql.default_socket=/var/run/mysqld/mysqld.sock\n' "$API" > "/etc/php/$XY/mods-available/00-swap-extension-dir.ini"
 
 # modules compiled into the new binary: disable the `extension=` line of the
 # packaged .ini (keep other directives) so nothing loads twice
