@@ -329,6 +329,59 @@ tests/
   emits nothing, still writes the progress key, and re-encodes the seeded
   payload losslessly; `__wakeup` never fires
 
+**PHP 7.3.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
+
+- ✅ `patch -p1` applies cleanly on pristine `php-7.3.33` (25 files)
+- ✅ `configure` + `make -j4` → success, binary runs (php, php-cgi)
+- ✅ `multipart/form-data` POST with fields + file upload works
+- ✅ Enhanced patch at official PHP 8.2.35 parity: chain-C refusal
+  (the `rfc1867_decode_refused` guard stops `php_session_rfc1867_update()`
+  and `php_session_rfc1867_cleanup()` after a refused decode — ported
+  from the 7.4 patch, so a refused decode leaves exactly one warning),
+  `post_max_size` "Actual POST length does not match Content-Length"
+  warning (both `main/rfc1867.c` hooks), `$_SESSION` dropped after
+  the upload
+- ✅ Official 8.2.35 test suite (adapted for PHP 7.x): `rfc1867.phpt`,
+  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`,
+  `rfc1867_sid_invalid.phpt` — all PASS under php-cgi. 7.x adaptations:
+  string-form `proc_open()` (the array form is PHP 7.4+), heredoc close
+  written as `PHP` / `);` on separate lines (PHP 7.2 rejects `PHP);`),
+  the 7.x invalid-sid warning wording, and no `U::__unserialize`
+  (PHP 7.4+ magic) in the expectations
+- ✅ `make test` subset (1621 tests: ext/session, serialize, file,
+  general_functions; php-cgi tests included): **1269 pass /
+  349 skip / 0 fail / 3 xfail**
+- ✅ Stock discriminator: all three adapted tests FAIL on pristine
+  7.3.33 and PASS on the patched build; the same subset on stock
+  has 1 fail (`rfc1867_sid_invalid.phpt`)
+- ✅ `post_max_size` bypass — via the `tests/feedpost/` harness
+  (missing Content-Length, `post_max_size=100`): pristine build
+  accepts the whole body silently (`LEN=500`), patched build emits
+  the official "Actual POST length does not match Content-Length" warning
+
+**PHP 7.2.34 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
+
+- ✅ `patch -p1` applies cleanly on pristine `php-7.2.34` (23 files)
+- ✅ `configure` + `make -j4` → success, binary runs (php, php-cgi)
+- ✅ `multipart/form-data` POST with fields + file upload works
+- ✅ Enhanced patch at official PHP 8.2.35 parity (chain-C refusal
+  guard in `php_session_rfc1867_update()` / `php_session_rfc1867_cleanup()`,
+  `post_max_size` warning hooks, `$_SESSION` dropped after the upload)
+- ✅ Official 8.2.35 test suite (adapted for PHP 7.2): `rfc1867.phpt`,
+  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`,
+  `rfc1867_sid_invalid.phpt` — all PASS under php-cgi (same 7.x
+  adaptations as 7.3; additionally PHP 7.2's parser rejects the
+  `foo(<<<'PHP' ... PHP);` one-line heredoc close)
+- ✅ `make test` subset (1605 tests: ext/session, serialize, file,
+  general_functions; php-cgi tests included): **1249 pass /
+  353 skip / 0 fail / 3 xfail**
+- ✅ Stock discriminator: all three adapted tests FAIL on pristine
+  7.2.34 and PASS on the patched build; the same subset on stock
+  has 1 fail (`rfc1867_sid_invalid.phpt`)
+- ✅ `post_max_size` bypass — via the `tests/feedpost/` harness:
+  pristine build accepts the whole body silently (`LEN=500`),
+  patched build emits the official warning
+
 **PHP 7.4.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
 - ✅ `patch -p1` applies cleanly on pristine `php-7.4.33`
