@@ -191,6 +191,16 @@ perl -pi -e "s#/etc/php/\Q$XY\E/cli#/etc/php/$XY/cgi#" "/usr/bin/php-cgi$XY"
 # connections would otherwise fall back to a non-existent /tmp/mysql.sock.
 printf 'extension_dir=/usr/lib/php/%s\nmysqli.default_socket=/var/run/mysqld/mysqld.sock\npdo_mysql.default_socket=/var/run/mysqld/mysqld.sock\n' "$API" > "/etc/php/$XY/mods-available/00-swap-extension-dir.ini"
 
+# ionCube: the distro keeps 00-ioncube-loader.ini as a real file inside
+# <sapi>/conf.d, which our mods-available scan never reads — the loader would
+# silently stop loading after the swap. Mirror it into the scan-dir (with an
+# absolute .so path, so it does not depend on ini parse order) when the
+# distro shipped an ini for this version and the loader .so exists.
+if [ -f "/etc/php/$XY/cli/conf.d/00-ioncube-loader.ini" ]; then
+  ION_SO="/usr/lib/php/$API/ioncube_loader_lin_$XY.so"
+  [ -f "$ION_SO" ] && printf 'zend_extension=%s\n' "$ION_SO" > "/etc/php/$XY/mods-available/10-ioncube-loader.ini"
+fi
+
 # modules compiled into the new binary: disable the `extension=` line of the
 # packaged .ini (keep other directives) so nothing loads twice
 for m in $(modules_of --static sapi/cli/php); do

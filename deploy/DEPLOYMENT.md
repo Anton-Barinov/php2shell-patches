@@ -253,7 +253,11 @@ These are not PHP-specific but they bit us during the same rollout:
    with the actual vulnerability.
 5. Watch out for **loaders that pin a specific PHP build** (e.g. ionCube):
    they may refuse to run against a custom binary even when the version
-   matches; check `php -m` for the loader line after every swap.
+   matches; check `php -m` for the loader line after every swap. The distro
+   keeps `00-ioncube-loader.ini` as a *real file* inside `<sapi>/conf.d`,
+   which our `mods-available` scan never reads — the swap script mirrors it
+   into `mods-available/10-ioncube-loader.ini` (absolute `.so` path) so the
+   loader keeps loading.
 
 ---
 
