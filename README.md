@@ -365,6 +365,12 @@ tests/
   during upload (`string(5) "Evill"` ×2 in the response); patched build
   emits nothing, still writes the progress key, and re-encodes the seeded
   payload losslessly; `__wakeup` never fires
+- ✅ Remi Collet security tree (`remicollet/php-src-security`,
+  branch `PHP-5.6-security-backports`) with `php-5.6-enhanced-remicollet.patch`
+  (same v4 parity, adapted to Remi's `if (progress->data)` backport):
+  `patch -p1` clean, `buildconf --force` + `configure` + `make -j4` OK,
+  subset **1164 pass / 210 skip / 2 fail (pre-existing `parse_ini_*`) /
+  3 warn**, the three discriminators PASS under php-cgi
 
 **PHP 7.3.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
