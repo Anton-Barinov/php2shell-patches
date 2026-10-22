@@ -233,7 +233,10 @@ These are not PHP-specific but they bit us during the same rollout:
   (catches a broken repointed ini path), `php-cgi -v`, the P10
   `mysqli.default_socket` assert (scan-dir ini actually applied) and an
   ionCube `php -m` check when a loader is configured. A failed `fpm -t`
-  aborts the swap while the old fpm is still serving.
+  aborts the swap while the old fpm is still serving. The block is
+  unit-tested by `tests/smoke-test.sh` (6 scenarios: healthy, `fpm -t`
+  failure, `php-cgi -v` failure, P10 socket regression, missing loader,
+  no loader configured).
 * **Rollback procedure — one command per version**:
 
   ```bash

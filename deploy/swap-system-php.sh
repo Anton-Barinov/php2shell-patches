@@ -258,12 +258,15 @@ if [ -f "$UNIT" ] && grep -q '^Type=notify' "$UNIT"; then
   systemctl daemon-reload
 fi
 
-# BEGIN post-swap-smoke
+# BEGIN post-swap-smoke (harnessed by tests/smoke-test.sh)
 # Catch a broken fpm config (repointed ini path), a scan-dir that stops
 # applying (extension_dir/sockets), or a loader that no longer loads —
 # before the restart puts every site on this PHP version at risk.
 echo "--- smoke ---"
-"/usr/sbin/php-fpm$XY" -t 2>&1 | tail -2
+# show what fpm -t said, but let the explicit check below emit the FATAL
+# (without `|| true` a failing -t would kill the script here under
+# `set -e -o pipefail` before the message is printed)
+"/usr/sbin/php-fpm$XY" -t 2>&1 | tail -2 || true
 "/usr/sbin/php-fpm$XY" -t >/dev/null 2>&1 || { echo "FATAL: php-fpm$XY -t (fpm config test failed after swap)"; exit 1; }
 "/usr/bin/php-cgi$XY" -v >/dev/null || { echo "FATAL: php-cgi$XY does not run after swap"; exit 1; }
 SOCK_CFG="$(php"$XY" -d disable_functions= -r 'echo ini_get("mysqli.default_socket");' 2>/dev/null || true)"

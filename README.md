@@ -376,6 +376,8 @@ tests/
                                       #  block of deploy/swap-system-php.sh
   ioncube-mirror-test.sh             # 7-scenario unit test for the loader-ini
                                       #  mirror block of deploy/swap-system-php.sh
+  smoke-test.sh                      # 6-scenario unit test for the pre-restart
+                                      #  smoke block of deploy/swap-system-php.sh
 ```
 
 ---
