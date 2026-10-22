@@ -60,6 +60,22 @@ modules_of() {
   "$@" ${flags[@]+"${flags[@]}"} -m 2>/dev/null | tr -d '*' | tr '[:upper:]' '[:lower:]' | grep -E '^[a-z0-9_]+$' | sort -u
 }
 
+# BEGIN cfg-backup (harnessed by tests/cfg-backup-test.sh)
+# Keep the first pre-swap state of every config this script rewrites:
+#   packaged ini -> <file>.swapbak  (extension= disable marking)
+#   fpm unit     -> <file>.swapbak  (Type=notify -> Type=exec)
+# The .swapbak name is fixed on purpose: the FIRST swap owns it, later
+# swaps must never clobber the original state — restore-system-php.sh
+# rolls back from these files. (00-swap-extension-dir.ini and the ioncube
+# mirror are 100% ours by name: no backup, restore removes them.)
+cfg_backup() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+  [ -f "$f.swapbak" ] && return 0
+  cp -a "$f" "$f.swapbak"
+}
+# END cfg-backup
+
 cd "$BUILD_ROOT"
 test -f "php-$VER.tar.xz" || { echo "FATAL: php-$VER.tar.xz missing in $BUILD_ROOT"; exit 1; }
 
@@ -189,7 +205,8 @@ perl -pi -e "s#/etc/php/\Q$XY\E/cli#/etc/php/$XY/cgi#" "/usr/bin/php-cgi$XY"
 # Also pin the mysql unix socket: Debian builds compile it as the binary's
 # default (MYSQL_UNIX_PORT), our vanilla build does not, so 'localhost' DB
 # connections would otherwise fall back to a non-existent /tmp/mysql.sock.
-printf 'extension_dir=/usr/lib/php/%s\nmysqli.default_socket=/var/run/mysqld/mysqld.sock\npdo_mysql.default_socket=/var/run/mysqld/mysqld.sock\n' "$API" > "/etc/php/$XY/mods-available/00-swap-extension-dir.ini"
+SWAP_INI="/etc/php/$XY/mods-available/00-swap-extension-dir.ini"
+printf 'extension_dir=/usr/lib/php/%s\nmysqli.default_socket=/var/run/mysqld/mysqld.sock\npdo_mysql.default_socket=/var/run/mysqld/mysqld.sock\n' "$API" > "$SWAP_INI"
 
 # BEGIN ioncube-mirror (harnessed by tests/ioncube-mirror-test.sh)
 # Loaders (ionCube et al.) drop a *real* ini file into <sapi>/conf.d — our
@@ -229,15 +246,36 @@ for m in $(modules_of --static sapi/cli/php); do
   ini="/etc/php/$XY/mods-available/$m.ini"
   [ -f "$ini" ] || continue
   grep -q '^extension=' "$ini" || continue
+  cfg_backup "$ini"
   sed -i 's/^extension=/;disabled-by-swap extension=/' "$ini"
 done
 
 # sury/debian units are Type=notify; vanilla php-fpm does not send sd_notify
 UNIT="/lib/systemd/system/php$XY-fpm.service"
 if [ -f "$UNIT" ] && grep -q '^Type=notify' "$UNIT"; then
+  cfg_backup "$UNIT"
   sed -i 's/^Type=notify/Type=exec/' "$UNIT"
   systemctl daemon-reload
 fi
+
+# BEGIN post-swap-smoke
+# Catch a broken fpm config (repointed ini path), a scan-dir that stops
+# applying (extension_dir/sockets), or a loader that no longer loads —
+# before the restart puts every site on this PHP version at risk.
+echo "--- smoke ---"
+"/usr/sbin/php-fpm$XY" -t 2>&1 | tail -2
+"/usr/sbin/php-fpm$XY" -t >/dev/null 2>&1 || { echo "FATAL: php-fpm$XY -t (fpm config test failed after swap)"; exit 1; }
+"/usr/bin/php-cgi$XY" -v >/dev/null || { echo "FATAL: php-cgi$XY does not run after swap"; exit 1; }
+SOCK_CFG="$(php"$XY" -d disable_functions= -r 'echo ini_get("mysqli.default_socket");' 2>/dev/null || true)"
+if [ "$SOCK_CFG" != /var/run/mysqld/mysqld.sock ]; then
+  echo "FATAL: mysqli.default_socket='$SOCK_CFG' (scan-dir ini not applied? P10 regression)"; exit 1
+fi
+[ -S "$SOCK_CFG" ] || echo "WARN: mysql socket $SOCK_CFG absent (mysqld not running on this host?)"
+if [ -f "$ION_DST" ]; then
+  php"$XY" -d disable_functions= -m 2>/dev/null | grep -qi ioncube \
+    || echo "WARN: $ION_DST present but 'php -m' shows no ionCube loader"
+fi
+# END post-swap-smoke
 
 systemctl restart "php$XY-fpm"
 sleep 1

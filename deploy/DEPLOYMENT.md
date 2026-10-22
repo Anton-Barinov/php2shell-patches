@@ -212,22 +212,50 @@ These are not PHP-specific but they bit us during the same rollout:
 
 * **Backups**: the swap script copies `phpX.Y`, `php-fpmX.Y`, `php-cgiX.Y`
   to `*.bak-<timestamp>` before replacing them — keep at least the earliest
-  (pre-deployment) backup of each.
+  (pre-deployment) backup of each. Its `cfg-backup` block additionally keeps
+  a fixed-name `<file>.swapbak` for every config it rewrites: the first
+  pre-swap state of `mods-available/*.ini` (the `extension=` disable marks)
+  and of the fpm unit (`Type=notify`). The first swap owns the `.swapbak`;
+  reruns never clobber it (unit-tested by `tests/cfg-backup-test.sh`).
+  Hosts swapped by an older script version (no `.swapbak` kept) can
+  backfill them with `deploy/retro-swapbak.sh <X.Y>` — it reverses the old
+  deterministic seds exactly.
 * **`Text file busy`**: you cannot `cp` over a running fpm binary.
-  `install(1)` unlinks+creates, so it is safe; plain `cp -a` is not. If you
-  restore backups by hand, `systemctl stop` the pool first.
+  `install(1)` unlinks+creates, so it is safe; plain `cp -a` is not —
+  the restore script stops the unit first, and you should too when
+  restoring backups by hand.
 * **Restart is not atomic**: each `systemctl restart phpX.Y-fpm` drops
   in-flight requests for ~1s per pool. Restarting every version in a loop
   multiplies the visible outage — restart only what you changed, and watch
   your monitoring during the rollout.
-* **Rollback procedure** (what we used when sites went down):
+* **Pre-restart smoke**: before the restart (and thus before any traffic
+  moves) the swap script runs a `post-swap-smoke` block: `php-fpm -t`
+  (catches a broken repointed ini path), `php-cgi -v`, the P10
+  `mysqli.default_socket` assert (scan-dir ini actually applied) and an
+  ionCube `php -m` check when a loader is configured. A failed `fpm -t`
+  aborts the swap while the old fpm is still serving.
+* **Rollback procedure — one command per version**:
+
+  ```bash
+  ./deploy/restore-system-php.sh 7.3           # preview first: --dry-run
+  ```
+
+  It restores the *earliest* `*.bak-*` of each binary (the oldest backup is
+  the untouched distro — later swaps only ever backed up already-swapped
+  binaries; it refuses to run when no backup exists), stops the fpm unit
+  first (`Text file busy`), restores every `.swapbak` (extension marks,
+  `Type=notify` + `daemon-reload`), removes the files we created over
+  nothing (`00-swap-extension-dir.ini`, the ioncube mirror — both are
+  no-ops for the distro build), then `php-fpm -t` → restart → `is-active`.
+  If `fpm -t` fails it still attempts a best-effort start so the version is
+  not left down, and then reports the failure.
+  Manual fallback (what we used before the script existed):
   1. restore the earliest `*.bak-*` for `php`, `php-cgi`, `php-fpm`
      (stop fpm units first!);
-  2. remove swap artifacts:
-     `rm /etc/php/*/mods-available/00-swap-extension-dir.ini`,
-     restore `;disabled-by-swap extension=` lines (P5) or rename
-     `*.disabled-by-swap` files back;
-  3. `systemctl restart` every affected `phpX.Y-fpm`;
+  2. restore `;disabled-by-swap extension=` lines from `.swapbak`
+     (P5) or strip the mark by hand, `rm` `00-swap-extension-dir.ini`;
+  3. `systemctl daemon-reload && systemctl restart` every affected
+     `phpX.Y-fpm`;
   4. verify with real `Host:`/`--resolve` requests against your vhosts, not
      just `php -v`.
 * **`pkill` footgun**: patterns like `pkill -f make` can match your own
@@ -261,8 +289,18 @@ These are not PHP-specific but they bit us during the same rollout:
    survive; a bare filename is resolved into `extension_dir`) and written as
    an absolute path, so it does not depend on ini parse order. If the host
    never had the loader — or it was uninstalled — the block is a no-op / it
-   drops a stale mirror instead of warning on every request. The logic is
-   unit-tested by `tests/ioncube-mirror-test.sh` (7 scenarios).
+    drops a stale mirror instead of warning on every request. The logic is
+    unit-tested by `tests/ioncube-mirror-test.sh` (7 scenarios).
+6. Run the **bundled security test set** against the *installed* binaries
+   (not just the build tree) plus the `tests/feedpost/` harness for every
+   swapped version — the exact recipe and the 28-version fleet matrix are
+   in the README, "Production validation". Two traps when you repeat it:
+   don't pass `-p php-cgi` (pre-7.4 `run-tests.php` invokes `php -r`, a
+   CLI-only flag, and the child gets garbage `-d` flags), and on hardened
+   hosts prepend `-d disable_functions=` (run-tests itself needs
+   `proc_open`). Expected result: everything passes except
+   `rfc1867_sid_invalid.phpt` on 7.0/7.4 (stock parity — verify against
+   the earliest `*.bak-*` binary if unsure).
 
 ---
 

@@ -188,6 +188,28 @@ and it handles the other traps we hit: pinned `extension_dir`, un-exported
 pcre symbols (`-fvisibility=hidden`, external PCRE ≤ 7.3), `Type=notify`
 fpm units, double-loaded modules, plus a post-swap module verification.
 
+Every config the script rewrites is backed up first (a `cfg-backup` block:
+fixed-name `<file>.swapbak`, first swap owns it, reruns never clobber), and
+a post-swap smoke block runs `php-fpm -t`, `php-cgi -v` and asserts
+`mysqli.default_socket` plus the ionCube loader **before** the restart puts
+traffic on the new build.
+
+Rollback of a single version:
+
+```bash
+./deploy/restore-system-php.sh 7.3           # --dry-run to preview
+# hosts swapped before config backups existed: backfill them first
+./deploy/retro-swapbak.sh 7.3
+```
+
+`restore-system-php.sh` restores the *earliest* `*.bak-*` per binary (the
+oldest backup is the untouched distro — later swaps only ever backed up
+already-swapped binaries), stops fpm first (a running master would fail
+`cp` with `Text file busy`), restores every `*.swapbak` (extension marks,
+`Type=notify` unit), drops the files we created over nothing
+(`00-swap-extension-dir.ini`, the ioncube mirror), then `php-fpm -t` +
+restart + `is-active`.
+
 **Read [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md) before deploying** —
 it documents every failure mode with real symptoms and log snippets
 (HTTP 500s, dead fpm pools, unloadable packaged `.so`) and the tested
@@ -337,15 +359,23 @@ harden/
   apply-hardening.sh                 # automated, idempotent, backs up originals
 build/
   build-patched-php.sh               # download + patch + configure + make install
+deploy/
+  swap-system-php.sh                 # in-place distro swap: build + backup + smoke + restart
+  restore-system-php.sh              # rollback one version (earliest *.bak-* + *.swapbak)
+  retro-swapbak.sh                   # backfill .swapbak on hosts swapped by older scripts
+  DEPLOYMENT.md                      # every pitfall we hit, with real symptoms/fixes
 inventory/
   scan-php-versions.sh               # per-host PHP version inventory
 tests/
   feedpost/                          # post_max_size bypass verification harness
-                                     # (phpize ext for PHP 5.6: feeds a multipart
-                                     #  body with missing Content-Length, see
-                                     #  tests/feedpost/README.md)
+                                      # (feedtest.php + run.sh <php> <src>: build the
+                                      #  ext against a configured tree without phpize,
+                                      #  missing Content-Length, 1 MB multipart,
+                                      #  see tests/feedpost/README.md)
+  cfg-backup-test.sh                 # 4-scenario unit test for the config-backup
+                                      #  block of deploy/swap-system-php.sh
   ioncube-mirror-test.sh             # 7-scenario unit test for the loader-ini
-                                     #  mirror block of deploy/swap-system-php.sh
+                                      #  mirror block of deploy/swap-system-php.sh
 ```
 
 ---
@@ -471,6 +501,15 @@ tests/
 - ✅ `configure` + `make` → success, CLI binary runs and passes smoke test
 - ✅ Incomplete class decode window closed: `incomplete_classes_only` gate in `var_unserializer` before class lookup in `O:` handler (no autoload / callback / `__wakeup`)
 - ✅ Discriminator harness matches official golden output (`bool(false)` + `string(20) "upload_progress_key|"`)
+- ✅ Official 8.2.35 tests adapted for PHP 7.0 and bundled in the patch:
+  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`
+  (plus `rfc1867.phpt`, `rfc1867_sid_invalid.phpt`, regression control
+  `incomplete_class_raw_payload_markers.phpt` in the tree). 7.0-specific
+  adaptation: the 5.6-style `$_SERVER` environment loop — no-argument
+  `getenv()` only exists since PHP 7.1 and aborts a stock 7.0 test run
+  with `ArgumentCountError`. Result: **4 pass / 1 fail**, the fail is
+  `rfc1867_sid_invalid.phpt` — stock parity, it fails identically on the
+  untouched distro 7.0.33 backup (session save-path/env wording)
 - ✅ Automated CI dry-run in GitHub Actions verified green
 
 **PHP 7.4.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
@@ -558,6 +597,67 @@ tests/
 Typical fleet this targets: OpenCart 2.x/3.x on PHP 5.6/7.0–7.3,
 HestiaCP / VestaCP panels, Debian 10/11 and Ubuntu 18.04/20.04/22.04
 hosts that cannot jump straight to PHP 8.2+.
+
+---
+
+## Production validation (fleet run, 2026-10-22)
+
+All **28 installed PHP versions** (9 + 9 + 10 across three live servers:
+`host-a`, `host-b`, `host-c`) were validated in place after the final
+swap: the bundled phpt set against the installed `phpX.Y`/`php-cgiX.Y`
+binaries, and the `tests/feedpost/` harness against each version.
+
+How the phpt runs were done (stock `run-tests.php`, no `-p`):
+
+```bash
+cd /opt/build/src-X.Y.Z        # configured source tree: tests + run-tests.php
+TEST_PHP_CGI_EXECUTABLE=/usr/bin/php-cgiX.Y \
+TEST_PHP_EXECUTABLE=/usr/bin/phpX.Y \
+  /usr/bin/phpX.Y run-tests.php -q ext/session/tests/rfc1867*.phpt \
+  ext/standard/tests/serialize/incomplete_class_raw_payload_markers.phpt
+```
+
+Notes that matter when you repeat this:
+
+- **No `-p php-cgi`**: pre-7.4 `run-tests.php` shells out to `php -r`
+  (a CLI-only flag) to learn `extension_dir` and would feed
+  `-d "extension=Usage: ..."` garbage to the child process — empty `.out`
+  files and fake failures. `TEST_PHP_CGI_EXECUTABLE` covers the cgi part.
+- **Hardened hosts**: hosting `php.ini`s disable `proc_open`, which
+  `run-tests.php` itself needs → run
+  `phpX.Y -d disable_functions= run-tests.php -q ...` (the children get
+  the flag back from run-tests).
+- `incomplete_class_raw_payload_markers.phpt` is CLI-only (it expects no
+  cgi headers) — keep it in the CLI runner.
+
+Results — every version passes the upload-progress/serializer suite; the
+only red mark is `rfc1867_sid_invalid.phpt` on 7.0/7.4, which fails
+identically on the untouched pre-swap distro backups (stock parity,
+session save-path/env wording — not a regression):
+
+| PHP  | host-a    | host-b | host-c   |
+|------|-----------|-------|----------|
+| 5.6  | 5/5       | 5/5   | 5/5      |
+| 7.0  | 4/1 ◦     | 4/1 ◦ | 4/1 ◦    |
+| 7.1  | 5/5       | 5/5   | 5/5      |
+| 7.2  | 5/5       | 5/5   | 5/5      |
+| 7.3  | 5/5       | 5/5   | 5/5      |
+| 7.4  | 4/1 ◦     | 4/1 ◦ | 4/1 ◦    |
+| 8.0  | 5/5       | 5/5   | 5/5      |
+| 8.1  | 5/5       | 5/5   | 5/5      |
+| 8.2  | 5/5       | 5/5   | 5/5      |
+| 8.3  | —         | —     | 5/5      |
+
+◦ stock-parity `rfc1867_sid_invalid.phpt` (fails on the stock binary too).
+
+`post_max_size` bypass (feedpost harness, missing Content-Length + 1 MB
+body, `post_max_size=100K`): **28/28 FIXED** — every version truncates to
+**102 381** bytes and emits the official
+`Actual POST length does not match Content-Length` warning instead of
+accepting the whole body.
+
+FPM error logs across the fleet (ionCube loader / fatal / undefined
+symbol): zero entries after the final swap window.
 
 ---
 
