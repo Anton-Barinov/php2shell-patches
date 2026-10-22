@@ -168,6 +168,31 @@ Then switch HestiaCP FPM pools / templates to the new binary, or install
 alongside system PHP and migrate domains one at a time.
 **Run `make test` before production.**
 
+### B2. In-place swap over the distro PHP (drop-in replacement)
+
+Replacing the distro binaries themselves (`/usr/bin/phpX.Y`,
+`/usr/sbin/php-fpmX.Y`, `/usr/bin/php-cgiX.Y` while keeping the packaged
+extensions from the scan dir) is where live sites get hurt — not by the
+patch, but by the build configuration. Use the swap script:
+
+```bash
+./deploy/swap-system-php.sh 7.3.33 php-7.3-enhanced-universal.patch
+./deploy/swap-system-php.sh 8.2.35            # vanilla 8.2.35+ already fixed
+```
+
+It refuses to swap if any module present in the installed build would end
+up neither compiled into the new binary nor available as a packaged `.so`
+(the `--disable-all` / missing-`filter` trap that causes
+`Undefined constant "INPUT_GET"` fatals → HTTP 500 on WordPress/OpenCart),
+and it handles the other traps we hit: pinned `extension_dir`, un-exported
+pcre symbols (`-fvisibility=hidden`, external PCRE ≤ 7.3), `Type=notify`
+fpm units, double-loaded modules, plus a post-swap module verification.
+
+**Read [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md) before deploying** —
+it documents every failure mode with real symptoms and log snippets
+(HTTP 500s, dead fpm pools, unloadable packaged `.so`) and the tested
+rollback procedure.
+
 ### C. PHP 5.6 — last resort
 
 ```bash
