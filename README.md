@@ -344,6 +344,8 @@ tests/
                                      # (phpize ext for PHP 5.6: feeds a multipart
                                      #  body with missing Content-Length, see
                                      #  tests/feedpost/README.md)
+  ioncube-mirror-test.sh             # 7-scenario unit test for the loader-ini
+                                     #  mirror block of deploy/swap-system-php.sh
 ```
 
 ---
