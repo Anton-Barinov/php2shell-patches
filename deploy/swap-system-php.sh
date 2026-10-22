@@ -116,7 +116,12 @@ fi
 # the distro compiles INTO the binary — those have no packaged *.ini and
 # would be lost by a swap (filter => HTTP 500, openssl/pcntl/zlib missing).
 # json <=7.4 ships as a packaged json.so; json >=8.0 is always built in.
-EXTRA_OPT="--enable-filter --enable-pcntl --with-zlib --with-openssl"
+#
+# PHP 5.6's ext/openssl predates OpenSSL 1.1 (opaque EVP_MD_CTX =>
+# `storage size of 'md_ctx' isn't known`). On hosts where libssl-dev is
+# 1.1.x, point 5.6 at a locally built OpenSSL 1.0.2:
+#   export OPENSSL_OPT=--with-openssl=/opt/ssl10
+EXTRA_OPT="--enable-filter --enable-pcntl --with-zlib ${OPENSSL_OPT:---with-openssl}"
 if [ "$MAJ" -eq 5 ]; then
   EXTRA_OPT="$EXTRA_OPT --with-mhash"
 fi

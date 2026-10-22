@@ -250,3 +250,45 @@ These are not PHP-specific but they bit us during the same rollout:
 5. Watch out for **loaders that pin a specific PHP build** (e.g. ionCube):
    they may refuse to run against a custom binary even when the version
    matches; check `php -m` for the loader line after every swap.
+
+---
+
+## P9. PHP 5.6 vs OpenSSL 1.1: build fails in `ext/openssl`
+
+**What happens.** configure passes, then make dies:
+
+```
+ext/openssl/openssl.c:4801:13: error: storage size of 'md_ctx' isn’t known
+ext/openssl/openssl.c:5233:17: error: storage size of 'cipher_ctx' isn’t known
+make: *** [Makefile:521: ext/openssl/openssl.lo] Error 1
+```
+
+**Why.** PHP 5.6 predates OpenSSL 1.1: it allocates `EVP_MD_CTX` /
+`EVP_CIPHER_CTX` on the stack, and 1.1 made those structs opaque. Official
+5.6 only ever supported OpenSSL 1.0.x. Distro packages (sury & co) ship 5.6
+against 1.1 by carrying a large backport patchset — a plain php.net tarball
+does not.
+
+You cannot just drop `--with-openssl`: Debian/Ubuntu keep openssl compiled
+*into* the distro binary (no packaged `openssl.ini`), so the swap script's
+baseline check (P1) will refuse the build.
+
+**Fix — build against OpenSSL 1.0.2 locally** (coexists with system
+libssl-dev 1.1, no package conflicts):
+
+```sh
+curl -LO https://www.openssl.org/source/old/1.0.2/openssl-1.0.2u.tar.gz
+tar xzf openssl-1.0.2u.tar.gz && cd openssl-1.0.2u
+./config --prefix=/opt/ssl10 shared
+make -j"$(nproc)" && make install_sw
+echo /opt/ssl10/lib > /etc/ld.so.conf.d/openssl10.conf && ldconfig
+```
+
+Then point only 5.6 at it (the swap script honours `OPENSSL_OPT`):
+
+```sh
+OPENSSL_OPT=--with-openssl=/opt/ssl10 ./swap-system-php.sh 5.6.40 <patch>
+```
+
+Keep the system `libssl-dev` installed for 7.0+ builds — 7.0 compiles
+against 1.1.x as-is.
