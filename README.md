@@ -142,7 +142,7 @@ systemctl restart 'php8.*-fpm'
 apt-get install hestia-php && systemctl restart hestia
 ```
 
-### B. PHP 7.1 / 7.2 / 7.3 / 7.4 / 8.0 / 8.1 — build patched
+### B. PHP 7.0 / 7.1 / 7.2 / 7.3 / 7.4 / 8.0 / 8.1 — build patched
 
 ```bash
 apt-get install -y build-essential autoconf bison re2c pkg-config \
@@ -151,10 +151,11 @@ apt-get install -y build-essential autoconf bison re2c pkg-config \
 
 # Enhanced (recommended if you need working upload progress / OpenCart forms):
 ./build/build-patched-php.sh 7.4.33 patches/php-7.4-enhanced-universal.patch /opt/php-7.4-patched
-# Or for PHP 7.3.33 / 7.2.34 / 7.1.33:
+# Or for PHP 7.3.33 / 7.2.34 / 7.1.33 / 7.0.33:
 ./build/build-patched-php.sh 7.3.33 patches/php-7.3-enhanced-universal.patch /opt/php-7.3-patched
 ./build/build-patched-php.sh 7.2.34 patches/php-7.2-enhanced-universal.patch /opt/php-7.2-patched
 ./build/build-patched-php.sh 7.1.33 patches/php-7.1-enhanced-universal.patch /opt/php-7.1-patched
+./build/build-patched-php.sh 7.0.33 patches/php-7.0-enhanced-universal.patch /opt/php-7.0-patched
 
 # Or minimal (official approach, disables upload progress):
 ./build/build-patched-php.sh 7.4.33 patches/php-7.4-minimal.patch /opt/php-7.4-patched
@@ -196,10 +197,10 @@ patch -p1 < ../patches/php-5.6-community-backport.patch
 ### Windows Pre-built Binaries
 
 Windows x64 and x86 binaries built and packaged with MSVC toolchains by [@Jan-E](https://github.com/Jan-E) (Apache Lounge):
-- **Apache Lounge Release Thread**: [https://www.apachelounge.com/viewtopic.php?t=6359](https://www.apachelounge.com/viewtopic.php?t=6359) (Includes updated x64 builds for PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4, 8.5; 5.6, 7.2, 7.3 builds in progress)
+- **Apache Lounge Release Thread**: [https://www.apachelounge.com/viewtopic.php?t=6359](https://www.apachelounge.com/viewtopic.php?t=6359) (Includes official updated x64/x86 NTS & TS builds for PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4, 8.5; PHP 5.6.40 VC11 x86 NTS released; 7.2, 7.3 builds in progress)
 - **PHP 5.6.40 (VC11 x86 NTS)**: [`php-5.6.40-nts-Win32-VC11-x86.zip`](https://phpdev.toolsforresearch.com/php-5.6.40-nts-Win32-VC11-x86.zip)
 
-> **MSVC / NMake Note:** All enhanced patches (5.6 through 8.1) bundle pre-generated C diffs directly in `ext/standard/var_unserializer.c` alongside `.re`, so building under Windows NMake does not require `re2c`.
+> **MSVC / NMake Note:** All enhanced patches (5.6 through 8.1) bundle pre-generated C diffs directly in `ext/standard/var_unserializer.c` alongside `.re`, so building under Windows NMake or older Linux distributions does not require `re2c` or specific parser toolchains.
 
 **Build troubleshooting (PHP 5.6 on modern toolchains):**
 
@@ -286,18 +287,22 @@ rebuild from known-good.
 
 ```
 patches/
-  php-7.4-minimal.patch              # official PHP-group minimal backport
-  php-7.4-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
-  php-8.0-minimal.patch              # official PHP-group minimal backport
-  php-8.0-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
   php-8.1-minimal.patch              # official PHP-group minimal backport
   php-8.1-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
+  php-8.0-minimal.patch              # official PHP-group minimal backport
+  php-8.0-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
+  php-7.4-minimal.patch              # official PHP-group minimal backport
+  php-7.4-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
   php-7.3-minimal.patch              # backport for PHP 7.3
   php-7.3-enhanced-universal.patch   # community enhanced for 7.3 (vanilla php.net tarball)
   php-7.3-enhanced-remicollet.patch  # community enhanced for 7.3: adapted for remicollet tree
   php-7.2-minimal.patch              # backport for PHP 7.2
   php-7.2-enhanced-universal.patch   # community enhanced for 7.2 (vanilla php.net tarball)
   php-7.2-enhanced-remicollet.patch  # community enhanced for 7.2: adapted for remicollet tree
+  php-7.1-minimal.patch              # backport for PHP 7.1
+  php-7.1-enhanced-universal.patch   # community enhanced for 7.1 (vanilla php.net tarball)
+  php-7.1-enhanced-remicollet.patch  # community enhanced for 7.1: adapted for remicollet tree
+  php-7.0-enhanced-universal.patch   # community enhanced for 7.0 (vanilla php.net tarball)
   php-5.6-enhanced-universal.patch   # community enhanced for 5.6: root-cause UAF fix (vanilla php.net tarball)
   php-5.6-enhanced-remicollet.patch  # community enhanced for 5.6: adapted for remicollet/php-src-security tree
   php-5.6-community-backport.patch   # community minimal for 5.6 (force-disable) — TEST FIRST
@@ -424,6 +429,22 @@ tests/
 - ✅ `post_max_size` bypass — via the `tests/feedpost/` harness:
   pristine build accepts the whole body silently (`LEN=500`),
   patched build emits the official warning
+
+**PHP 7.1.33 enhanced-universal & remicollet**:
+
+- ✅ `patch -p1` applies cleanly on pristine `php-7.1.33` and `php-7.1.9` (contributed by @lovelock)
+- ✅ Dedicated `php-7.1-enhanced-remicollet.patch` applies with 0 rejects against `remicollet/php-src-security` (`PHP-7.1-security-backports` branch)
+- ✅ Enhanced patch at official PHP 8.2.35 parity: chain-C refusal, reserved-props rejection, `post_max_size` warning hooks, `$_SESSION` dropped after upload
+- ✅ Official 8.2.35 security tests adapted for PHP 7.1 PASS under php-cgi
+- ✅ Automated CI dry-run and full compile smoke test pass in GitHub Actions
+
+**PHP 7.0.33 enhanced-universal**:
+
+- ✅ `patch -p1` applies cleanly on pristine `php-7.0.33` (21 files)
+- ✅ `configure` + `make` → success, CLI binary runs and passes smoke test
+- ✅ Incomplete class decode window closed: `incomplete_classes_only` gate in `var_unserializer` before class lookup in `O:` handler (no autoload / callback / `__wakeup`)
+- ✅ Discriminator harness matches official golden output (`bool(false)` + `string(20) "upload_progress_key|"`)
+- ✅ Automated CI dry-run in GitHub Actions verified green
 
 **PHP 7.4.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
