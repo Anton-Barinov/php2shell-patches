@@ -72,9 +72,26 @@ jobs:
           patch -p1 --dry-run < ../${{ matrix.patch }}
           echo "Patch ${{ matrix.patch }} applied with 0 rejected hunks!"
 
+  validate-remi-backports:
+    name: "Dry-run: PHP 5.6 Remi Collet Security Tree"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Clone Remi Collet security backports
+        run: |
+          git clone --depth 1 --branch PHP-5.6-security-backports https://github.com/remicollet/php-src-security.git remi-tree
+
+      - name: Verify patch dry-run
+        run: |
+          cd remi-tree
+          patch -p1 --dry-run < ../patches/php-5.6-enhanced-remicollet.patch
+          echo "Remi Collet 5.6 backport patch applied cleanly with 0 rejected hunks!"
+
   build-and-smoke-test:
     name: "Build: ${{ matrix.name }}"
-    needs: validate-patches
+    needs: [validate-patches, validate-remi-backports]
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false

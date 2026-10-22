@@ -57,7 +57,7 @@ stays enabled.
 | 7.3.x | ⚠️ backport | `php-7.3-minimal.patch` **or** `php-7.3-enhanced-universal.patch` |
 | 7.2.x | ⚠️ backport | `php-7.2-minimal.patch` **or** `php-7.2-enhanced-universal.patch` |
 | 7.0 – 7.1 | ❌ none | **migrate**, or apply hardening + consider the 7.2 backport patches |
-| 5.6.x | ❌ none | **migrate**. Community backport: `php-5.6-enhanced-universal.patch` (recommended — root-cause fix, keeps uploads) or `php-5.6-community-backport.patch` (minimal). **Test first.** |
+| 5.6.x | ❌ none | **migrate**. Community backports: `php-5.6-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.6-enhanced-remicollet.patch` (for [remicollet/php-src-security](https://github.com/remicollet/php-src-security) backports tree) or `php-5.6-community-backport.patch` (minimal). **Test first.** |
 
 ---
 
@@ -174,7 +174,11 @@ cd php-5.6
 ./buildconf --force          # GitHub tags ship without a configure script
 
 # Enhanced (recommended — root-cause UAF fix, keeps upload progress / forms):
+# - On vanilla php.net tarballs:
 patch -p1 < ../patches/php-5.6-enhanced-universal.patch
+# - On Remi Collet's security backports tree (remicollet/php-src-security):
+# patch -p1 < ../patches/php-5.6-enhanced-remicollet.patch
+
 ./configure --prefix=/opt/php-5.6-patched --disable-cgi --enable-fpm \
     --without-openssl --with-zlib --enable-mbstring --with-sqlite3 \
     --with-pdo-sqlite --enable-session --with-gettext --enable-sockets \
@@ -185,6 +189,10 @@ make -j"$(nproc)"
 patch -p1 < ../patches/php-5.6-community-backport.patch
 # ... same configure/make
 ```
+
+### Windows Pre-built Binaries
+
+- **PHP 5.6.40 (VC11 x86 NTS)**: Built and packaged with MSVC toolchain by [@Jan-E](https://github.com/Jan-E) (Apache Lounge): [`php-5.6.40-nts-Win32-VC11-x86.zip`](https://phpdev.toolsforresearch.com/php-5.6.40-nts-Win32-VC11-x86.zip)
 
 **Build troubleshooting (PHP 5.6 on modern toolchains):**
 
@@ -275,7 +283,8 @@ patches/
   php-7.4-enhanced-universal.patch   # community: root-cause UAF fix + fixation/filename/serializer, keeps progress bars
   php-8.0-minimal.patch              # official PHP-group minimal backport
   php-8.1-minimal.patch              # official PHP-group minimal backport
-  php-5.6-enhanced-universal.patch   # community enhanced for 5.6: root-cause UAF fix + fixation/filename/serializer, keeps progress bars
+  php-5.6-enhanced-universal.patch   # community enhanced for 5.6: root-cause UAF fix (vanilla php.net tarball)
+  php-5.6-enhanced-remicollet.patch  # community enhanced for 5.6: adapted for remicollet/php-src-security tree
   php-5.6-community-backport.patch   # community minimal for 5.6 (force-disable) — TEST FIRST
 harden/
   php.ini-mitigations                # annotated php.ini snippet

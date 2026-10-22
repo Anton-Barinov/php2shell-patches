@@ -1,0 +1,711 @@
+diff -ruN --exclude=enhance56.py php-5.6.40/Zend/zend_alloc.c php-5.6.40-enhanced/Zend/zend_alloc.c
+--- a/Zend/zend_alloc.c	2019-01-09 12:54:13
++++ b/Zend/zend_alloc.c	2026-10-21 18:49:05
+@@ -91,7 +91,7 @@
+ #if ZEND_DEBUG && defined(HAVE_KILL) && defined(HAVE_GETPID)
+ 	kill(getpid(), SIGSEGV);
+ #endif
+-	exit(1);
++	_exit(1);
+ }
+ 
+ /*******************/
+@@ -1740,6 +1740,37 @@
+ 	}
+ }
+ 
++ZEND_API void zend_mm_safe_error_ex(const char *format, ...)
++{
++	const char *error_filename = NULL;
++	uint error_lineno = 0;
++	TSRMLS_FETCH();
++
++	if (zend_is_compiling(TSRMLS_C)) {
++		error_filename = zend_get_compiled_filename(TSRMLS_C);
++		error_lineno = zend_get_compiled_lineno(TSRMLS_C);
++	} else if (EG(in_execution)) {
++		error_filename = EG(active_op_array) ? EG(active_op_array)->filename : NULL;
++		error_lineno = EG(opline_ptr) ? (*EG(opline_ptr))->lineno : 0;
++	}
++	if (!error_filename) {
++		error_filename = "Unknown";
++	}
++
++	{
++		va_list args;
++		va_start(args, format);
++		fprintf(stderr, "\nFatal error: ");
++		vfprintf(stderr, format, args);
++		va_end(args);
++		fprintf(stderr, " in %s on line %u\n", error_filename, error_lineno);
++	}
++#ifdef PHP_WIN32
++	fflush(stderr);
++#endif
++	_exit(1);
++}
++
+ static void zend_mm_safe_error(zend_mm_heap *heap,
+ 	const char *format,
+ 	size_t limit,
+@@ -1749,59 +1780,13 @@
+ #endif
+ 	size_t size)
+ {
+-	if (heap->reserve) {
+-		_zend_mm_free_int(heap, heap->reserve ZEND_FILE_LINE_CC ZEND_FILE_LINE_EMPTY_CC);
+-		heap->reserve = NULL;
+-	}
+-	if (heap->overflow == 0) {
+-		const char *error_filename;
+-		uint error_lineno;
+-		TSRMLS_FETCH();
+-		if (zend_is_compiling(TSRMLS_C)) {
+-			error_filename = zend_get_compiled_filename(TSRMLS_C);
+-			error_lineno = zend_get_compiled_lineno(TSRMLS_C);
+-		} else if (EG(in_execution)) {
+-			error_filename = EG(active_op_array)?EG(active_op_array)->filename:NULL;
+-			error_lineno = EG(opline_ptr)?(*EG(opline_ptr))->lineno:0;
+-		} else {
+-			error_filename = NULL;
+-			error_lineno = 0;
+-		}
+-		if (!error_filename) {
+-			error_filename = "Unknown";
+-		}
+-		heap->overflow = 1;
+-		zend_try {
+-			zend_error_noreturn(E_ERROR,
+-				format,
+-				limit,
++	(void) heap;
++	zend_mm_safe_error_ex(format, limit,
+ #if ZEND_DEBUG
+-				filename,
+-				lineno,
++		filename,
++		lineno,
+ #endif
+-				size);
+-		} zend_catch {
+-			if (heap->overflow == 2) {
+-				fprintf(stderr, "\nFatal error: ");
+-				fprintf(stderr,
+-					format,
+-					limit,
+-#if ZEND_DEBUG
+-					filename,
+-					lineno,
+-#endif
+-					size);
+-				fprintf(stderr, " in %s on line %d\n", error_filename, error_lineno);
+-			}
+-/* See http://support.microsoft.com/kb/190351 */
+-#ifdef PHP_WIN32
+-			fflush(stderr);
+-#endif
+-		} zend_end_try();
+-	} else {
+-		heap->overflow = 2;
+-	}
+-	zend_bailout();
++		size);
+ }
+ 
+ static zend_mm_free_block *zend_mm_search_large_block(zend_mm_heap *heap, size_t true_size)
+@@ -2472,7 +2457,7 @@
+ 	       "rm"(offset));
+ 
+ 	if (UNEXPECTED(overflow)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+ 		return 0;
+ 	}
+ 	return res;
+@@ -2501,7 +2486,7 @@
+ 
+ #undef LP_SUFF
+         if (UNEXPECTED(overflow)) {
+-                zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++                zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+                 return 0;
+         }
+         return res;
+@@ -2522,7 +2507,7 @@
+                "1"(0));
+ 
+         if (UNEXPECTED(overflow)) {
+-                zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++                zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+                 return 0;
+         }
+         return res;
+@@ -2542,7 +2527,7 @@
+                "r"(offset));
+ 
+         if (UNEXPECTED(overflow)) {
+-                zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++                zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+                 return 0;
+         }
+         return res;
+@@ -2555,7 +2540,7 @@
+ 	zend_ulong64 res = (zend_ulong64)nmemb * (zend_ulong64)size + (zend_ulong64)offset;
+ 
+ 	if (UNEXPECTED(res > (zend_ulong64)0xFFFFFFFFL)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+ 		return 0;
+ 	}
+ 	return (size_t) res;
+@@ -2570,7 +2555,7 @@
+ 	double _delta = (double)res - _d;
+ 
+ 	if (UNEXPECTED((_d + _delta ) != _d)) {
+-		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
++		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
+ 		return 0;
+ 	}
+ 	return res;
+@@ -2582,7 +2567,7 @@
+ {
+ 	size_t str_size = safe_address(nmemb, size, offset);
+ 	if (UNEXPECTED(str_size > INT_MAX)) {
+-		zend_error_noreturn(E_ERROR, "String allocation overflow, max size is %d", INT_MAX);
++		zend_mm_safe_error_ex("String allocation overflow, max size is %d", INT_MAX);
+ 	}
+ 	return emalloc_rel(str_size);
+ }
+diff -ruN --exclude=enhance56.py php-5.6.40/Zend/zend_alloc.h php-5.6.40-enhanced/Zend/zend_alloc.h
+--- a/Zend/zend_alloc.h	2019-01-09 12:54:13
++++ b/Zend/zend_alloc.h	2026-10-21 18:48:19
+@@ -161,6 +161,8 @@
+ ZEND_API size_t zend_memory_usage(int real_usage TSRMLS_DC);
+ ZEND_API size_t zend_memory_peak_usage(int real_usage TSRMLS_DC);
+ 
++ZEND_API void zend_mm_safe_error_ex(const char *format, ...);
++
+ END_EXTERN_C()
+ 
+ /* fast cache for zval's */
+diff -ruN --exclude=enhance56.py php-5.6.40/ext/session/php_session.h php-5.6.40-enhanced/ext/session/php_session.h
+--- a/ext/session/php_session.h	2019-01-09 12:54:13
++++ b/ext/session/php_session.h	2026-10-21 19:42:59
+@@ -112,10 +112,10 @@
+ 	size_t    content_length;
+ 
+ 	zval      *data;                 /* the array exported to session data */
+-	zval      *post_bytes_processed; /* data["bytes_processed"] */
++	long       post_bytes_processed;
+ 	zval      *files;                /* data["files"] array */
+ 	zval      *current_file;         /* array of currently uploading file */
+-	zval      *current_file_bytes_processed;
++	long       current_file_bytes_processed;
+ } php_session_rfc1867_progress;
+ 
+ typedef struct _php_ps_globals {
+@@ -172,6 +172,7 @@
+ 	zend_bool invalid_session_id;	/* allows the driver to report about an invalid session id and request id regeneration */
+ 
+ 	php_session_rfc1867_progress *rfc1867_progress;
++	zend_bool in_rfc1867_update; /* php2shell: session decoded during upload progress, before RINIT (CVE-2026-109619) */
+ 	zend_bool rfc1867_enabled; /* session.upload_progress.enabled */
+ 	zend_bool rfc1867_cleanup; /* session.upload_progress.cleanup */
+ 	smart_str rfc1867_prefix;  /* session.upload_progress.prefix */
+diff -ruN --exclude=enhance56.py php-5.6.40/ext/session/session.c php-5.6.40-enhanced/ext/session/session.c
+--- a/ext/session/session.c	2019-01-09 12:54:13
++++ b/ext/session/session.c	2026-10-21 19:43:44
+@@ -95,6 +95,7 @@
+ 	PS(session_status) = php_session_none;
+ 	PS(mod_data) = NULL;
+ 	PS(mod_user_is_open) = 0;
++	PS(in_rfc1867_update) = 0; /* php2shell: never leak the upload-progress window across requests */
+ 	/* Do NOT init PS(mod_user_names) here! */
+ 	PS(http_session_vars) = NULL;
+ }
+@@ -117,6 +118,10 @@
+ 		efree(PS(id));
+ 		PS(id) = NULL;
+ 	}
++
++	/* php2shell: reset serializer between requests to prevent cross-request
++	 * handler mismatch (CVE-2026-109619 / ikow finding). */
++	PS(serializer) = NULL;
+ }
+ /* }}} */
+ 
+@@ -839,6 +844,19 @@
+ /* ***************
+    * Serializers *
+    *************** */
++
++/* php2shell (CVE-2026-109619): the upload-progress handler decodes the
++ * session before RINIT, when no user code may run. Objects are then kept
++ * as __PHP_Incomplete_Class: no autoload, no unserialize_callback_func,
++ * no __wakeup() (backported from the official PHP 8.2.35+ fix). */
++static void php_session_unserialize_init(php_unserialize_data_t *var_hash TSRMLS_DC)
++{
++	PHP_VAR_UNSERIALIZE_INIT(*var_hash);
++	if (PS(in_rfc1867_update)) {
++		php_var_unserialize_set_incomplete_classes_only(*var_hash, 1 TSRMLS_CC);
++	}
++}
++
+ PS_SERIALIZER_ENCODE_FUNC(php_serialize) /* {{{ */
+ {
+ 	smart_str buf = {0};
+@@ -862,7 +880,7 @@
+ 	zval *session_vars;
+ 	php_unserialize_data_t var_hash;
+ 
+-	PHP_VAR_UNSERIALIZE_INIT(var_hash);
++	php_session_unserialize_init(&var_hash TSRMLS_CC);
+ 	ALLOC_INIT_ZVAL(session_vars);
+ 	if (php_var_unserialize(&session_vars, &val, endptr, &var_hash TSRMLS_CC)) {
+ 		var_push_dtor(&var_hash, &session_vars);
+@@ -926,7 +944,7 @@
+ 	php_unserialize_data_t var_hash;
+ 	int skip = 0;
+ 
+-	PHP_VAR_UNSERIALIZE_INIT(var_hash);
++	php_session_unserialize_init(&var_hash TSRMLS_CC);
+ 
+ 	for (p = val; p < endptr; ) {
+ 		zval **tmp;
+@@ -1023,7 +1041,7 @@
+ 	php_unserialize_data_t var_hash;
+ 	int skip = 0;
+ 
+-	PHP_VAR_UNSERIALIZE_INIT(var_hash);
++	php_session_unserialize_init(&var_hash TSRMLS_CC);
+ 
+ 	p = val;
+ 
+@@ -2438,6 +2456,7 @@
+ 	ps_globals->mod = NULL;
+ 	ps_globals->serializer = NULL;
+ 	ps_globals->mod_data = NULL;
++	ps_globals->in_rfc1867_update = 0;
+ 	ps_globals->session_status = php_session_none;
+ 	ps_globals->default_mod = NULL;
+ 	ps_globals->mod_user_implemented = 0;
+@@ -2621,10 +2640,38 @@
+ 	return Z_TYPE_PP(cancel_upload) == IS_BOOL && Z_LVAL_PP(cancel_upload);
+ } /* }}} */
+ 
++static void php_session_rfc1867_sync_counters(php_session_rfc1867_progress *progress TSRMLS_DC) /* {{{ */
++{
++	zval **entry, **files, **file;
++	HashTable *ht;
++
++	if (!progress->data || Z_TYPE_P(progress->data) != IS_ARRAY) {
++		return;
++	}
++	ht = Z_ARRVAL_P(progress->data);
++
++	/* php2shell: never retain HashTable bucket pointers — publishing progress
++	 * data may separate/replace the exported array (eness root-cause fix).
++	 * Resolve each counter afresh from the live array. */
++	if (zend_hash_find(ht, "bytes_processed", sizeof("bytes_processed"), (void **)&entry) == SUCCESS) {
++		ZVAL_LONG(*entry, progress->post_bytes_processed);
++	}
++	if (zend_hash_find(ht, "files", sizeof("files"), (void **)&files) == SUCCESS
++			&& Z_TYPE_PP(files) == IS_ARRAY
++			&& zend_hash_num_elements(Z_ARRVAL_PP(files)) > 0) {
++		ulong idx = zend_hash_num_elements(Z_ARRVAL_PP(files)) - 1;
++		if (zend_hash_index_find(Z_ARRVAL_PP(files), idx, (void **)&file) == SUCCESS
++				&& Z_TYPE_PP(file) == IS_ARRAY
++				&& zend_hash_find(Z_ARRVAL_PP(file), "bytes_processed", sizeof("bytes_processed"), (void **)&entry) == SUCCESS) {
++			ZVAL_LONG(*entry, progress->current_file_bytes_processed);
++		}
++	}
++} /* }}} */
++
+ static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, int force_update TSRMLS_DC) /* {{{ */
+ {
+ 	if (!force_update) {
+-		if (Z_LVAL_P(progress->post_bytes_processed) < progress->next_update) {
++		if (progress->post_bytes_processed < progress->next_update) {
+ 			return;
+ 		}
+ #ifdef HAVE_GETTIMEOFDAY
+@@ -2639,9 +2686,11 @@
+ 			progress->next_update_time = dtv + PS(rfc1867_min_freq);
+ 		}
+ #endif
+-		progress->next_update = Z_LVAL_P(progress->post_bytes_processed) + progress->update_step;
++		progress->next_update = progress->post_bytes_processed + progress->update_step;
+ 	}
+ 
++	php_session_rfc1867_sync_counters(progress TSRMLS_CC);
++	PS(in_rfc1867_update) = 1;
+ 	php_session_initialize(TSRMLS_C);
+ 	PS(session_status) = php_session_active;
+ 	IF_SESSION_VARS() {
+@@ -2649,16 +2698,19 @@
+ 		ZEND_SET_SYMBOL_WITH_LENGTH(Z_ARRVAL_P(PS(http_session_vars)), progress->key.c, progress->key.len+1, progress->data, 2, 0);
+ 	}
+ 	php_session_flush(TSRMLS_C);
++	PS(in_rfc1867_update) = 0;
+ } /* }}} */
+ 
+ static void php_session_rfc1867_cleanup(php_session_rfc1867_progress *progress TSRMLS_DC) /* {{{ */
+ {
++	PS(in_rfc1867_update) = 1;
+ 	php_session_initialize(TSRMLS_C);
+ 	PS(session_status) = php_session_active;
+ 	IF_SESSION_VARS() {
+ 		zend_hash_del(Z_ARRVAL_P(PS(http_session_vars)), progress->key.c, progress->key.len+1);
+ 	}
+ 	php_session_flush(TSRMLS_C);
++	PS(in_rfc1867_update) = 0;
+ } /* }}} */
+ 
+ static int php_session_rfc1867_callback(unsigned int event, void *event_data, void **extra TSRMLS_DC) /* {{{ */
+@@ -2669,7 +2721,7 @@
+ 	if (php_session_rfc1867_orig_callback) {
+ 		retval = php_session_rfc1867_orig_callback(event, event_data, extra TSRMLS_CC);
+ 	}
+-	if (!PS(rfc1867_enabled)) {
++	if (!PS(rfc1867_enabled)) { /* php2shell: force-disable session upload progress (CVE-2026-109618/109619) */
+ 		return retval;
+ 	}
+ 
+@@ -2702,7 +2754,7 @@
+ 			if (data->name && data->value && value_len) {
+ 				size_t name_len = strlen(data->name);
+ 
+-				if (name_len == progress->sname_len && memcmp(data->name, PS(session_name), name_len) == 0) {
++				if (!PS(use_only_cookies) && name_len == progress->sname_len && memcmp(data->name, PS(session_name), name_len) == 0) {
+ 					zval_dtor(&progress->sid);
+ 					ZVAL_STRINGL(&progress->sid, (*data->value), value_len, 1);
+ 
+@@ -2741,15 +2793,14 @@
+ 				ALLOC_INIT_ZVAL(progress->data);
+ 				array_init(progress->data);
+ 
+-				ALLOC_INIT_ZVAL(progress->post_bytes_processed);
+-				ZVAL_LONG(progress->post_bytes_processed, data->post_bytes_processed);
++				progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 				ALLOC_INIT_ZVAL(progress->files);
+ 				array_init(progress->files);
+ 
+ 				add_assoc_long_ex(progress->data, "start_time",      sizeof("start_time"),      (long)sapi_get_request_time(TSRMLS_C));
+ 				add_assoc_long_ex(progress->data, "content_length",  sizeof("content_length"),  progress->content_length);
+-				add_assoc_zval_ex(progress->data, "bytes_processed", sizeof("bytes_processed"), progress->post_bytes_processed);
++				add_assoc_long_ex(progress->data, "bytes_processed", sizeof("bytes_processed"), progress->post_bytes_processed);
+ 				add_assoc_bool_ex(progress->data, "done",            sizeof("done"),            0);
+ 				add_assoc_zval_ex(progress->data, "files",           sizeof("files"),           progress->files);
+ 
+@@ -2762,22 +2813,37 @@
+ 			ALLOC_INIT_ZVAL(progress->current_file);
+ 			array_init(progress->current_file);
+ 
+-			ALLOC_INIT_ZVAL(progress->current_file_bytes_processed);
+-			ZVAL_LONG(progress->current_file_bytes_processed, 0);
++			progress->current_file_bytes_processed = 0;
+ 
+ 			/* Each uploaded file has its own array. Trying to make it close to $_FILES entries. */
+ 			add_assoc_string_ex(progress->current_file, "field_name",    sizeof("field_name"),      data->name, 1);
+-			add_assoc_string_ex(progress->current_file, "name",          sizeof("name"),            *data->filename, 1);
++			/* php2shell: sanitize filename before storing in session (blocks
++			 * session-file injection via LFI / handler-mismatch, ikow Chain A/C). */
++			{
++				char *safe_name = estrndup(*data->filename, strlen(*data->filename));
++				size_t fi, fj = 0;
++				size_t nlen = strlen(*data->filename);
++				for (fi = 0; fi < nlen && fj < 255; fi++) {
++					unsigned char c = (unsigned char)safe_name[fi];
++					if (c == '\0' || c == '|' || c == '\r' || c == '\n') {
++						continue;
++					}
++					safe_name[fj++] = (char)c;
++				}
++				safe_name[fj] = '\0';
++				add_assoc_string_ex(progress->current_file, "name", sizeof("name"), safe_name, 1);
++				efree(safe_name);
++			}
+ 			add_assoc_null_ex(progress->current_file, "tmp_name",        sizeof("tmp_name"));
+ 			add_assoc_long_ex(progress->current_file, "error",           sizeof("error"),           0);
+ 
+ 			add_assoc_bool_ex(progress->current_file, "done",            sizeof("done"),            0);
+ 			add_assoc_long_ex(progress->current_file, "start_time",      sizeof("start_time"),      (long)time(NULL));
+-			add_assoc_zval_ex(progress->current_file, "bytes_processed", sizeof("bytes_processed"), progress->current_file_bytes_processed);
++			add_assoc_long_ex(progress->current_file, "bytes_processed", sizeof("bytes_processed"), progress->current_file_bytes_processed);
+ 
+ 			add_next_index_zval(progress->files, progress->current_file);
+ 
+-			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++			progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 			php_session_rfc1867_update(progress, 0 TSRMLS_CC);
+ 		}
+@@ -2789,8 +2855,8 @@
+ 				break;
+ 			}
+ 
+-			Z_LVAL_P(progress->current_file_bytes_processed) = data->offset + data->length;
+-			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++			progress->current_file_bytes_processed = data->offset + data->length;
++			progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 			php_session_rfc1867_update(progress, 0 TSRMLS_CC);
+ 		}
+@@ -2808,7 +2874,7 @@
+ 			add_assoc_long_ex(progress->current_file, "error", sizeof("error"), data->cancel_upload);
+ 			add_assoc_bool_ex(progress->current_file, "done",  sizeof("done"),  1);
+ 
+-			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++			progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 			php_session_rfc1867_update(progress, 0 TSRMLS_CC);
+ 		}
+@@ -2822,7 +2888,7 @@
+ 				if (PS(rfc1867_cleanup)) {
+ 					php_session_rfc1867_cleanup(progress TSRMLS_CC);
+ 				} else {
+ 					if (progress->data) {
+ 						add_assoc_bool_ex(progress->data, "done", sizeof("done"), 1);
+-						Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++						progress->post_bytes_processed = data->post_bytes_processed;
+ 						php_session_rfc1867_update(progress, 1 TSRMLS_CC);
+ 					}
+ 				}
+ 				php_rshutdown_session_globals(TSRMLS_C);
+diff -ruN --exclude=enhance56.py php-5.6.40/ext/standard/php_incomplete_class.h php-5.6.40-enhanced/ext/standard/php_incomplete_class.h
+--- a/ext/standard/php_incomplete_class.h	2019-01-09 12:54:13
++++ b/ext/standard/php_incomplete_class.h	2026-10-21 19:42:46
+@@ -52,6 +52,9 @@
+ 
+ #define INCOMPLETE_CLASS "__PHP_Incomplete_Class"
+ #define MAGIC_MEMBER "__PHP_Incomplete_Class_Name"
++/* php2shell: set by php_var_unserialize() in incomplete_classes_only mode —
++ * the raw C: payload. The serializer writes it back unchanged. */
++#define MAGIC_MEMBER_SERIALIZED "__PHP_Incomplete_Class_Serialized"
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff -ruN --exclude=enhance56.py php-5.6.40/ext/standard/php_var.h php-5.6.40-enhanced/ext/standard/php_var.h
+--- a/ext/standard/php_var.h	2019-01-09 12:54:13
++++ b/ext/standard/php_var.h	2026-10-21 19:42:49
+@@ -45,12 +45,14 @@
+ 	void *last;
+ 	void *first_dtor;
+ 	void *last_dtor;
++	zend_bool incomplete_classes_only; /* php2shell: no user code during session upload progress (CVE-2026-109619) */
+ };
+ 
+ typedef struct php_unserialize_data* php_unserialize_data_t;
+ 
+ PHPAPI void php_var_serialize(smart_str *buf, zval **struc, php_serialize_data_t *var_hash TSRMLS_DC);
+ PHPAPI int php_var_unserialize(zval **rval, const unsigned char **p, const unsigned char *max, php_unserialize_data_t *var_hash TSRMLS_DC);
++PHPAPI void php_var_unserialize_set_incomplete_classes_only(php_unserialize_data_t d, zend_bool mode TSRMLS_DC);
+ 
+ #define PHP_VAR_SERIALIZE_INIT(var_hash_ptr) \
+ do  { \
+diff -ruN --exclude=enhance56.py php-5.6.40/ext/standard/var.c php-5.6.40-enhanced/ext/standard/var.c
+--- a/ext/standard/var.c	2019-01-09 12:54:13
++++ b/ext/standard/var.c	2026-10-21 19:42:54
+@@ -768,6 +768,32 @@
+ 					ce = Z_OBJCE_P(struc);
+ 				}
+ 
++				/* php2shell: incomplete_classes_only mode (session upload
++				 * progress, CVE-2026-109619) keeps the raw C: payload in a
++				 * magic member; write it back unchanged so that session data
++				 * round-trips losslessly. */
++				if (ce == PHP_IC_ENTRY && Z_OBJPROP_P(struc)) {
++					zval **raw;
++					if (zend_hash_find(Z_OBJPROP_P(struc), MAGIC_MEMBER_SERIALIZED, sizeof(MAGIC_MEMBER_SERIALIZED) - 1, (void **)&raw) == SUCCESS
++							&& Z_TYPE_PP(raw) == IS_STRING) {
++						zend_uint raw_name_len;
++						char *raw_name = php_lookup_class_name(struc, &raw_name_len);
++						if (raw_name) {
++							smart_str_appendl(buf, "C:", 2);
++							smart_str_append_long(buf, (int)raw_name_len);
++							smart_str_appendl(buf, ":\"", 2);
++							smart_str_appendl(buf, raw_name, raw_name_len);
++							smart_str_appendl(buf, "\":", 2);
++							smart_str_append_long(buf, (int)Z_STRLEN_PP(raw));
++							smart_str_appendl(buf, ":{", 2);
++							smart_str_appendl(buf, Z_STRVAL_PP(raw), Z_STRLEN_PP(raw));
++							smart_str_appendc(buf, '}');
++							efree(raw_name);
++							return;
++						}
++					}
++				}
++
+ 				if (ce && ce->serialize != NULL) {
+ 					/* has custom handler */
+ 					unsigned char *serialized_data = NULL;
+@@ -899,6 +925,13 @@
+ 	}
+ }
+ /* }}} */
++
++/* php2shell (CVE-2026-109619): decode every object as __PHP_Incomplete_Class —
++ * no autoload, no unserialize_callback_func, no __wakeup user code. */
++PHPAPI void php_var_unserialize_set_incomplete_classes_only(php_unserialize_data_t d, zend_bool mode TSRMLS_DC)
++{
++	d->incomplete_classes_only = mode;
++}
+ 
+ PHPAPI void php_var_serialize(smart_str *buf, zval **struc, php_serialize_data_t *var_hash TSRMLS_DC) /* {{{ */
+ {
+diff -ruN --exclude=enhance56.py php-5.6.40/ext/standard/var_unserializer.c php-5.6.40-enhanced/ext/standard/var_unserializer.c
+--- a/ext/standard/var_unserializer.c	2019-01-09 13:25:59
++++ b/ext/standard/var_unserializer.c	2026-10-21 19:53:29
+@@ -425,6 +425,21 @@
+ 		return 0;
+ 	}
+ 
++	if (var_hash && *var_hash && (*var_hash)->incomplete_classes_only && ce == PHP_IC_ENTRY) {
++		/* php2shell: incomplete_classes_only — keep the raw C: payload in a
++		 * magic member so the value round-trips losslessly, without ever
++		 * invoking a user unserializer (CVE-2026-109619). */
++		zval *payload;
++		object_init_ex(*rval, PHP_IC_ENTRY);
++		MAKE_STD_ZVAL(payload);
++		Z_TYPE_P(payload) = IS_STRING;
++		Z_STRVAL_P(payload) = estrndup((const char *)*p, datalen);
++		Z_STRLEN_P(payload) = datalen;
++		zend_hash_update(Z_OBJPROP_P(*rval), MAGIC_MEMBER_SERIALIZED, sizeof(MAGIC_MEMBER_SERIALIZED), &payload, sizeof(payload), NULL);
++		(*p) += datalen;
++		return finish_nested_data(UNSERIALIZE_PASSTHRU);
++	}
++
+ 	if (ce->unserialize == NULL) {
+ 		zend_error(E_WARNING, "Class %s has no unserializer", ce->name);
+ 		object_init_ex(*rval, ce);
+@@ -712,6 +727,13 @@
+ 
+ 	class_name = estrndup(class_name, len);
+ 
++	if (var_hash && *var_hash && (*var_hash)->incomplete_classes_only) {
++		/* php2shell (CVE-2026-109619): this decode runs before RINIT during
++		 * session upload progress — no class lookup, no autoload, no
++		 * unserialize_callback_func, no __wakeup: Incomplete_Class only. */
++		incomplete_class = 1;
++		ce = PHP_IC_ENTRY;
++	} else
+ 	do {
+ 		/* Try to find class directly */
+ 		BG(serialize_lock)++;
+diff -ruN --exclude=enhance56.py php-5.6.40/ext/standard/var_unserializer.re php-5.6.40-enhanced/ext/standard/var_unserializer.re
+--- a/ext/standard/var_unserializer.re	2019-01-09 12:54:13
++++ b/ext/standard/var_unserializer.re	2026-10-21 19:52:43
+@@ -431,6 +431,21 @@
+ 		return 0;
+ 	}
+ 
++	if (var_hash && *var_hash && (*var_hash)->incomplete_classes_only && ce == PHP_IC_ENTRY) {
++		/* php2shell: incomplete_classes_only — keep the raw C: payload in a
++		 * magic member so the value round-trips losslessly, without ever
++		 * invoking a user unserializer (CVE-2026-109619). */
++		zval *payload;
++		object_init_ex(*rval, PHP_IC_ENTRY);
++		MAKE_STD_ZVAL(payload);
++		Z_TYPE_P(payload) = IS_STRING;
++		Z_STRVAL_P(payload) = estrndup((const char *)*p, datalen);
++		Z_STRLEN_P(payload) = datalen;
++		zend_hash_update(Z_OBJPROP_P(*rval), MAGIC_MEMBER_SERIALIZED, sizeof(MAGIC_MEMBER_SERIALIZED), &payload, sizeof(payload), NULL);
++		(*p) += datalen;
++		return finish_nested_data(UNSERIALIZE_PASSTHRU);
++	}
++
+ 	if (ce->unserialize == NULL) {
+ 		zend_error(E_WARNING, "Class %s has no unserializer", ce->name);
+ 		object_init_ex(*rval, ce);
+@@ -795,6 +810,13 @@
+ 
+ 	class_name = estrndup(class_name, len);
+ 
++	if (var_hash && *var_hash && (*var_hash)->incomplete_classes_only) {
++		/* php2shell (CVE-2026-109619): this decode runs before RINIT during
++		 * session upload progress — no class lookup, no autoload, no
++		 * unserialize_callback_func, no __wakeup: Incomplete_Class only. */
++		incomplete_class = 1;
++		ce = PHP_IC_ENTRY;
++	} else
+ 	do {
+ 		/* Try to find class directly */
+ 		BG(serialize_lock)++;
+diff -ruN --exclude=enhance56.py php-5.6.40/main/main.c php-5.6.40-enhanced/main/main.c
+--- a/main/main.c	2019-01-09 12:54:13
++++ b/main/main.c	2026-10-21 18:37:18
+@@ -1880,6 +1880,8 @@
+ 		for (i=0; i<NUM_TRACK_VARS; i++) {
+ 			if (PG(http_globals)[i]) {
+ 				zval_ptr_dtor(&PG(http_globals)[i]);
++				/* php2shell (CVE-2026-109619): may be accessed before php_request_startup() */
++				PG(http_globals)[i] = NULL;
+ 			}
+ 		}
+ 	} zend_end_try();
+diff -ruN --exclude=enhance56.py php-5.6.40/main/rfc1867.c php-5.6.40-enhanced/main/rfc1867.c
+--- a/main/rfc1867.c	2019-01-09 12:54:13
++++ b/main/rfc1867.c	2026-10-21 20:36:10
+@@ -249,6 +249,12 @@
+ 
+ 	self->buf_begin = self->buffer;
+ 
++	/* php2shell (CVE-2026-109618): Content-Length may be absent or lying;
++	 * never read more than post_max_size (official PHP 8.2.35 fix). */
++	if (SG(post_max_size) > 0 && SG(read_post_bytes) > SG(post_max_size)) {
++		return 0;
++	}
++
+ 	/* calculate the free space in the buffer */
+ 	bytes_to_read = self->bufsize - self->bytes_in_buffer;
+ 
+@@ -400,6 +406,15 @@
+ 	return 0;
+ }
+ 
++/* php2shell (CVE-2026-109618): limit which MIME headers are retained.
++ * An attacker can send a huge number of headers per multipart part; representing
++ * them all in PHP heap can exhaust memory_limit within post_max_size. */
++static zend_bool php_mime_should_save_hdr(const char *name)
++{
++	return !strcasecmp(name, "Content-Disposition")
++		|| !strcasecmp(name, "Content-Type");
++}
++
+ /* parse headers */
+ static int multipart_buffer_headers(multipart_buffer *self, zend_llist *header TSRMLS_DC)
+ {
+@@ -443,7 +458,9 @@
+ 			*value = '\0';
+ 			do { value++; } while(isspace(*value));
+ 
+-			key = estrdup(line);
++			if (php_mime_should_save_hdr(line)) {
++				key = estrdup(line);
++			}
+ 			smart_str_appends(&buf_value, value);
+ 		} else if (buf_value.c) { /* If no ':' on the line, add to previous line */
+ 			smart_str_appends(&buf_value, line);
+@@ -457,6 +474,8 @@
+ 		entry.key = key;
+ 		entry.value = buf_value.c;
+ 		zend_llist_add_element(header, &entry);
++	} else if (buf_value.c) {
++		smart_str_free(&buf_value);
+ 	}
+ 
+ 	return 1;
+@@ -1287,6 +1306,12 @@
+ 	}
+ 
+ fileupload_done:
++	/* php2shell (CVE-2026-109618): actual body may exceed declared
++	 * Content-Length (official PHP 8.2.35 fix). */
++	if (SG(post_max_size) > 0 && SG(read_post_bytes) > SG(post_max_size)) {
++		sapi_module.sapi_error(E_WARNING, "Actual POST length does not match Content-Length, and exceeds %ld bytes", SG(post_max_size));
++	}
++
+ 	if (php_rfc1867_callback != NULL) {
+ 		multipart_event_end event_end;
+ 
