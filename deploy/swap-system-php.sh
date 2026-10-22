@@ -14,10 +14,11 @@
 #    (filter => fatal `Undefined constant "INPUT_GET"` on WordPress/
 #    OpenCart => HTTP 500). --enable-filter is mandatory; every other module
 #    the new build lacks is caught by the baseline module check below.
-#  * packaged .so files reference pcre_exec (<=7.3) / pcre2_* (>=7.4) and
-#    other internals; configure adds -fvisibility=hidden *after* user
-#    CFLAGS, so bundled symbols must be un-hidden and PCRE linked externally
-#    before 7.4.
+#  * packaged .so files resolve pcre_exec / pcre2_match_8 from the *binary's*
+#    link scope (they carry no DT_NEEDED of their own) and reference other
+#    internals; configure adds -fvisibility=hidden after user CFLAGS, so
+#    internal symbols must stay exported. PCRE must be linked exactly like
+#    the distro build does (see the PCRE block).
 #  * a broken extension_dir in the swap ini makes every packaged .so unload:
 #    fpm starts, all pools die, nginx returns 502/500.
 #  * distro fpm units are Type=notify; vanilla php-fpm never sends
@@ -33,11 +34,11 @@
 #   /opt/build/php-<ver>.tar.xz   official tarball (php.net/distributions)
 #   /opt/build/patches/<patch>    php2shell patch file
 #
-# Requires: gcc/make pkg-config libxml2-dev libssl-dev libcurl4-openssl-dev
-#           libmagic-dev (fileinfo) zlib1g-dev, plus for a closer parity with
-#           the distro build: libonig-dev (8.0+ mbstring), libsodium-dev,
-#           libpng-dev libjpeg-dev libfreetype6-dev (gd), libicu-dev (intl),
-#           libpcre3-dev (<=7.3 external PCRE), libreadline-dev.
+# Requires: gcc/make pkg-config libxml2-dev libssl-dev (openssl is compiled
+#           into the distro binary, so it must be enabled here too)
+#           zlib1g-dev, libpcre3-dev (5.6-7.2 external PCRE1),
+#           libpcre2-dev (7.3+ external PCRE2; pkg-config libpcre2-8),
+#           libsodium-dev, and optionally: libreadline-dev.
 set -euo pipefail
 
 VER="${1:?usage: swap-system-php.sh <ver> [patch-file]}"
@@ -71,24 +72,42 @@ if [ -n "$PATCH" ]; then
 fi
 
 # --- PCRE / visibility ------------------------------------------------------
-# <=7.3: distro PHP links external libpcre, packaged .so expect `pcre_exec`.
-#   `--with-pcre-regex=/usr` needs the lib in /usr/lib (multiarch symlink).
-# >=7.4: bundled pcre2 keeps the pcre2_* names; un-hide it instead.
+# Distro PHP links external PCRE and the packaged .so files (fileinfo & co)
+# resolve pcre_exec / pcre2_match_8 from the binary's link scope:
+#   5.6-7.2 : libpcre.so.3    -> --with-pcre-regex=/usr (needs the
+#             /usr/lib/libpcre.so symlink: configure misses the multiarch dir)
+#   7.3     : libpcre2-8       -> its configure maps DIR=/usr onto pkg-config
+#             'libpcre2-8 >= 10.30' (install libpcre2-dev)
+#   >=7.4   : libpcre2-8       -> --with-external-pcre (bundled pcre2 renames
+#             every symbol to php_pcre2_* and would leave pcre2_match_8
+#             unresolved in the packaged .so files)
 MAJ="${XY%%.*}"
-if [ "$MAJ" -lt 7 ] || { [ "$MAJ" -eq 7 ] && [ "${XY#7.}" -lt 4 ]; }; then
-  if [ ! -e /usr/lib/libpcre.so ] && [ -e /usr/lib/x86_64-linux-gnu/libpcre.so ]; then
-    ln -sfn x86_64-linux-gnu/libpcre.so /usr/lib/libpcre.so
-  fi
+MINOR=""
+[ "$MAJ" = 7 ] && MINOR="${XY#7.}"
+if [ "$MAJ" -lt 7 ] || { [ "$MAJ" -eq 7 ] && [ "$MINOR" -lt 4 ]; }; then
   PCRE_OPT="--with-pcre-regex=/usr"
+  if [ "$MAJ" -lt 7 ]; then
+    if [ ! -e /usr/lib/libpcre.so ] && [ -e /usr/lib/x86_64-linux-gnu/libpcre.so ]; then
+      ln -sfn x86_64-linux-gnu/libpcre.so /usr/lib/libpcre.so
+    fi
+    [ -e /usr/lib/libpcre.so ] || { echo "FATAL: /usr/lib/libpcre.so missing (install libpcre3-dev for external PCRE1)"; exit 1; }
+  else
+    pkg-config --exists 'libpcre2-8 >= 10.30' || { echo "FATAL: pkg-config libpcre2-8 >= 10.30 not found (install libpcre2-dev for PHP 7.3)"; exit 1; }
+  fi
 else
-  PCRE_OPT="--with-pcre-jit"
+  pkg-config --exists 'libpcre2-8 >= 10.30' || { echo "FATAL: pkg-config libpcre2-8 >= 10.30 not found (install libpcre2-dev)"; exit 1; }
+  PCRE_OPT="--with-external-pcre"
 fi
 
 # --- extensions -------------------------------------------------------------
-# Keep --disable-all (a small, auditable build that matches the packaged
-# .so ABI), but re-enable everything the distro compiles in and that cannot
-# be loaded from a packaged .so.
-EXTRA_OPT="--enable-filter"
+# Keep --disable-all (a small, auditable build), but re-enable every module
+# the distro compiles INTO the binary — those have no packaged *.ini and
+# would be lost by a swap (filter => HTTP 500, openssl/pcntl/zlib missing).
+# json <=7.4 ships as a packaged json.so; json >=8.0 is always built in.
+EXTRA_OPT="--enable-filter --enable-pcntl --with-zlib --with-openssl"
+if [ "$MAJ" -eq 5 ]; then
+  EXTRA_OPT="$EXTRA_OPT --with-mhash"
+fi
 if pkg-config --exists libsodium 2>/dev/null; then
   EXTRA_OPT="$EXTRA_OPT --with-sodium"
 fi

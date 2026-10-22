@@ -38,6 +38,10 @@ PHP Fatal error: Uncaught Error: Undefined constant "INPUT_GET" in .../SomePlugi
 `filter.ini` in the scan dir. `--disable-all` switches filter off, nothing
 can load it at runtime, and every framework that touches `INPUT_*`
 (WordPress, OpenCart, phpMyAdmin, ...) fatals on the first request.
+Modules compiled into the distro binary with no packaged `.ini` on typical
+Debian/Ubuntu PHP: `filter`, `hash`, `session`, `libxml`, `zlib`, `openssl`,
+`pcntl`, `sodium` (7.2+), `mhash` (5.6) — all of them need an explicit
+configure flag under `--disable-all`.
 
 **Fix.**
 
@@ -112,19 +116,28 @@ extensions (mysqlnd, pcre, libxml internals) end up hidden, and packaged
 sed -i 's/-fvisibility=hidden//g' Makefile
 ```
 
-**Why, part 2 — PCRE naming.** Before 7.4 the distro links PHP against
-external libpcre, so packaged `.so` expect the symbol `pcre_exec`. A
-bundled-PCRE build exports `php_pcre_exec` instead — no match. From 7.4 the
-bundled pcre2 keeps the `pcre2_*` names, it just has to stay un-hidden
-(fix 1).
+**Why, part 2 — PCRE linking.** The packaged `.so` files carry **no PCRE
+`DT_NEEDED` of their own**: they resolve `pcre_exec` (5.6–7.2) /
+`pcre2_match_8` (7.3+) from the *binary's* link scope. The distro links
+external PCRE in every version — 5.6–7.2 against `libpcre.so.3`, **7.3 and
+newer against `libpcre2-8`** (yes, 7.3 already uses PCRE2). Bundled-PCRE
+builds rename those symbols (`php_pcre_exec`, `php_pcre2_*`), so the
+packaged modules fail to load with `undefined symbol`.
 
-**Fix 2.**
+**Fix 2** (replicate what the distro build links):
 
-* PHP ≤ 7.3: `--with-pcre-regex=/usr` **and** `libpcre3-dev` installed.
+* PHP **5.6–7.2** (PCRE1): `--with-pcre-regex=/usr` **and** `libpcre3-dev`.
   On multiarch layouts configure looks for `/usr/lib/libpcre.(a|so)` and
   fails; add the compatibility link:
   `ln -sfn x86_64-linux-gnu/libpcre.so /usr/lib/libpcre.so`
-* PHP ≥ 7.4: `--with-pcre-jit` (bundled pcre2) — fix 1 does the rest.
+* PHP **7.3**: the flag is the same (`--with-pcre-regex=/usr`), but 7.3's
+  configure maps `DIR=/usr` onto pkg-config **`libpcre2-8 >= 10.30`** —
+  install `libpcre2-dev`, otherwise configure dies with
+  `PCRE2 version 10.30 or later is required`.
+* PHP **≥ 7.4**: `--with-external-pcre` + `libpcre2-dev`. (`--with-external-pcre`
+  exists in 7.4–8.x; bundled pcre2 would rename every symbol and leave
+  `pcre2_match_8` unresolved in the packaged `.so` files — visibility
+  fix 1 does not help there.)
 
 ---
 
