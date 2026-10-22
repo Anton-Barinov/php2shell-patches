@@ -246,7 +246,11 @@ These are not PHP-specific but they bit us during the same rollout:
    error logs.
 4. Extension-heavy smoke test: request upload/session flows (the bundled
    upload-progress discriminator in `tests/` does exactly this) and compare
-   with a known-good run.
+   with a known-good run. When running such a harness on a hardened host,
+   launch it with `-d disable_functions=`: hosting php.ini files routinely
+   disable `proc_open`, the harness needs it to drive the cgi upload test,
+   and a disabled `proc_open` yields garbage output that has nothing to do
+   with the actual vulnerability.
 5. Watch out for **loaders that pin a specific PHP build** (e.g. ionCube):
    they may refuse to run against a custom binary even when the version
    matches; check `php -m` for the loader line after every swap.
