@@ -48,6 +48,11 @@ SRC="/opt/build/src-$VER"
 BUILD_ROOT="${BUILD_ROOT:-/opt/build}"
 CRITICAL_MODULES="filter ctype json mbstring tokenizer phar fileinfo session hash openssl curl mysqli pdo pdo_mysql zip iconv"
 
+# php -m also prints section headers and loader banner lines
+# ("[Zend Modules]", "the ioncube php loader + ioncube24", "Zend OPcache") —
+# keep only bare module identifiers for baseline/after comparisons.
+modules_of() { "$@" -m 2>/dev/null | tr -d '*' | tr '[:upper:]' '[:lower:]' | grep -E '^[a-z0-9_]+$' | sort -u; }
+
 cd "$BUILD_ROOT"
 test -f "php-$VER.tar.xz" || { echo "FATAL: php-$VER.tar.xz missing in $BUILD_ROOT"; exit 1; }
 
@@ -59,7 +64,7 @@ echo "packaged extension_dir=${EXTDIR:-<unset>} api=$API"
 # the acceptance criterion after the swap
 BASELINE="$BUILD_ROOT/baseline-$XY.modules"
 if [ -x "/usr/bin/php$XY" ]; then
-  php"$XY" -m 2>/dev/null | tr -d '*' | tr '[:upper:]' '[:lower:]' | sort > "$BASELINE" || true
+  modules_of php"$XY" > "$BASELINE" || true
 fi
 
 rm -rf "$SRC"; mkdir -p "$SRC"
@@ -133,7 +138,7 @@ make -j"$(nproc)"
 # If neither — e.g. `filter`, which the distro keeps compiled in while
 # --disable-all turns it off — the swap breaks every site on that PHP
 # (fatal `Undefined constant "INPUT_GET"` on WordPress/OpenCart => HTTP 500).
-NEW_MODULES="$(sapi/cli/php -m 2>/dev/null | tr -d '*' | tr '[:upper:]' '[:lower:]' | sort)"
+NEW_MODULES="$(modules_of sapi/cli/php)"
 UNAVAILABLE=""
 if [ -s "$BASELINE" ]; then
   while IFS= read -r m; do
@@ -173,7 +178,7 @@ printf 'extension_dir=/usr/lib/php/%s\n' "$API" > "/etc/php/$XY/mods-available/0
 
 # modules compiled into the new binary: disable the `extension=` line of the
 # packaged .ini (keep other directives) so nothing loads twice
-for m in $(sapi/cli/php -m 2>/dev/null | tr -d '*' | tr '[:upper:]' '[:lower:]'); do
+for m in $(modules_of sapi/cli/php); do
   ini="/etc/php/$XY/mods-available/$m.ini"
   [ -f "$ini" ] || continue
   grep -q '^extension=' "$ini" || continue
@@ -192,7 +197,7 @@ sleep 1
 systemctl is-active --quiet "php$XY-fpm" || { echo "FATAL: php$XY-fpm not active"; exit 1; }
 
 # --- final verification -----------------------------------------------------
-AFTER="$(php"$XY" -m 2>/dev/null | tr -d '*' | tr '[:upper:]' '[:lower:]' | sort)"
+AFTER="$(modules_of php"$XY")"
 for m in $CRITICAL_MODULES; do
   printf '%s\n' "$AFTER" | grep -qx "$m" && continue
   case "$XY" in
