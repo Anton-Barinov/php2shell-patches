@@ -191,15 +191,37 @@ perl -pi -e "s#/etc/php/\Q$XY\E/cli#/etc/php/$XY/cgi#" "/usr/bin/php-cgi$XY"
 # connections would otherwise fall back to a non-existent /tmp/mysql.sock.
 printf 'extension_dir=/usr/lib/php/%s\nmysqli.default_socket=/var/run/mysqld/mysqld.sock\npdo_mysql.default_socket=/var/run/mysqld/mysqld.sock\n' "$API" > "/etc/php/$XY/mods-available/00-swap-extension-dir.ini"
 
-# ionCube: the distro keeps 00-ioncube-loader.ini as a real file inside
-# <sapi>/conf.d, which our mods-available scan never reads — the loader would
-# silently stop loading after the swap. Mirror it into the scan-dir (with an
-# absolute .so path, so it does not depend on ini parse order) when the
-# distro shipped an ini for this version and the loader .so exists.
-if [ -f "/etc/php/$XY/cli/conf.d/00-ioncube-loader.ini" ]; then
-  ION_SO="/usr/lib/php/$API/ioncube_loader_lin_$XY.so"
-  [ -f "$ION_SO" ] && printf 'zend_extension=%s\n' "$ION_SO" > "/etc/php/$XY/mods-available/10-ioncube-loader.ini"
+# BEGIN ioncube-mirror (harnessed by tests/ioncube-mirror-test.sh)
+# Loaders (ionCube et al.) drop a *real* ini file into <sapi>/conf.d — our
+# mods-available scan never reads it, so the loader would silently stop
+# loading after the swap. Mirror it into the scan-dir:
+#   - source: first existing of cli/fpm/cgi conf.d / 00-ioncube-loader.ini;
+#   - content: the distro's own zend_extension= value (absolute path kept as
+#     is — supports non-standard loader locations; a bare filename is resolved
+#     against /usr/lib/php/$API), quotes stripped;
+#   - absolute .so path in the mirror keeps it independent of ini parse order;
+#   - idempotent cleanup: if the distro no longer ships the ini or the loader
+#     .so is gone, drop a stale mirror so nothing warns on every request.
+ION_SRC=""
+for _d in cli fpm cgi; do
+  _f="/etc/php/$XY/$_d/conf.d/00-ioncube-loader.ini"
+  [ -f "$_f" ] && { ION_SRC="$_f"; break; }
+done
+ION_DST="/etc/php/$XY/mods-available/10-ioncube-loader.ini"
+ION_PATH=""
+if [ -n "$ION_SRC" ]; then
+  ION_PATH="$(sed -n 's/^[[:space:]]*zend_extension[[:space:]]*=[[:space:]]*//p' "$ION_SRC" | head -n1 | tr -d "\"'")"
+  case "$ION_PATH" in
+    ""|/*) : ;;                                   # empty or already absolute
+    *) ION_PATH="/usr/lib/php/$API/$ION_PATH" ;;  # bare filename → extension_dir
+  esac
 fi
+if [ -n "$ION_PATH" ] && [ -f "$ION_PATH" ]; then
+  printf 'zend_extension=%s\n' "$ION_PATH" > "$ION_DST"
+else
+  rm -f "$ION_DST"
+fi
+# END ioncube-mirror
 
 # modules compiled into the new binary: disable the `extension=` line of the
 # packaged .ini (keep other directives) so nothing loads twice

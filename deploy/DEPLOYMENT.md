@@ -256,8 +256,13 @@ These are not PHP-specific but they bit us during the same rollout:
    matches; check `php -m` for the loader line after every swap. The distro
    keeps `00-ioncube-loader.ini` as a *real file* inside `<sapi>/conf.d`,
    which our `mods-available` scan never reads — the swap script mirrors it
-   into `mods-available/10-ioncube-loader.ini` (absolute `.so` path) so the
-   loader keeps loading.
+   into `mods-available/10-ioncube-loader.ini`: the `zend_extension=` value
+   is taken from the distro ini itself (non-standard loader locations
+   survive; a bare filename is resolved into `extension_dir`) and written as
+   an absolute path, so it does not depend on ini parse order. If the host
+   never had the loader — or it was uninstalled — the block is a no-op / it
+   drops a stale mirror instead of warning on every request. The logic is
+   unit-tested by `tests/ioncube-mirror-test.sh` (7 scenarios).
 
 ---
 
