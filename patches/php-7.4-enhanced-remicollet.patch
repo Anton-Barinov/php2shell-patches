@@ -912,10 +912,12 @@ index 89a7400a..e553a380 100644
 +	 * 7.4 writes them directly into the array, unconditionally). */
 +	php_session_rfc1867_sync_counters(progress);
  	if (!force_update) {
- 		if (Z_LVAL_P(progress->post_bytes_processed) < progress->next_update) {
+-		if (Z_LVAL_P(progress->post_bytes_processed) < progress->next_update) {
++		if (progress->post_bytes_processed < progress->next_update) {
  			return;
 @@ -3141,8 +3198,23 @@ static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, i
- 		progress->next_update = Z_LVAL_P(progress->post_bytes_processed) + progress->update_step;
+-		progress->next_update = Z_LVAL_P(progress->post_bytes_processed) + progress->update_step;
++		progress->next_update = progress->post_bytes_processed + progress->update_step;
  	}
  
 -	php_session_initialize();
