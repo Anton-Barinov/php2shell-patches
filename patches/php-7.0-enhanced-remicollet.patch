@@ -24,7 +24,15 @@ diff --git a/Zend/zend_alloc.c b/Zend/zend_alloc.c
 index be41aa3e..5b618924 100644
 --- a/Zend/zend_alloc.c
 +++ b/Zend/zend_alloc.c
-@@ -369,7 +369,42 @@ static ZEND_COLD ZEND_NORETURN void zend_mm_panic(const char *message)
+@@ -58,6 +58,7 @@
+ #include "zend_globals.h"
+ #include "zend_operators.h"
+ #include "zend_multiply.h"
++#include "zend_execute.h"
+ 
+ #ifdef HAVE_SIGNAL_H
+ # include <signal.h>
+@@ -369,7 +370,42 @@ static ZEND_COLD ZEND_NORETURN void zend_mm_panic(const char *message)
  #if ZEND_DEBUG && defined(HAVE_KILL) && defined(HAVE_GETPID)
  	kill(getpid(), SIGSEGV);
  #endif

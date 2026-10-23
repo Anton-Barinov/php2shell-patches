@@ -12,7 +12,15 @@ diff -ruN orig70/Zend/zend_API.h patched70/Zend/zend_API.h
 diff -ruN orig70/Zend/zend_alloc.c patched70/Zend/zend_alloc.c
 --- a/Zend/zend_alloc.c	2018-12-04 20:23:03
 +++ b/Zend/zend_alloc.c	2026-10-22 15:42:30
-@@ -369,9 +369,44 @@
+@@ -58,6 +58,7 @@
+ #include "zend_globals.h"
+ #include "zend_operators.h"
+ #include "zend_multiply.h"
++#include "zend_execute.h"
+ 
+ #ifdef HAVE_SIGNAL_H
+ # include <signal.h>
+@@ -369,9 +370,44 @@
  #if ZEND_DEBUG && defined(HAVE_KILL) && defined(HAVE_GETPID)
  	kill(getpid(), SIGSEGV);
  #endif
