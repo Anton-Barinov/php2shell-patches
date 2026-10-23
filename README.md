@@ -490,6 +490,54 @@ tests/
   subset **1164 pass / 210 skip / 2 fail (pre-existing `parse_ini_*`) /
   3 warn**, the three discriminators PASS under php-cgi
 
+**PHP 7.0.33 enhanced-universal**:
+
+- ✅ `patch -p1` applies cleanly on pristine `php-7.0.33` (21 files)
+- ✅ `configure` + `make` → success, CLI binary runs and passes smoke test
+- ✅ Incomplete class decode window closed: `incomplete_classes_only` gate in `var_unserializer` before class lookup in `O:` handler (no autoload / callback / `__wakeup`)
+- ✅ Discriminator harness matches official golden output (`bool(false)` + `string(20) "upload_progress_key|"`)
+- ✅ Official 8.2.35 tests adapted for PHP 7.0 and bundled in the patch:
+  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`
+  (plus `rfc1867.phpt`, `rfc1867_sid_invalid.phpt`, regression control
+  `incomplete_class_raw_payload_markers.phpt` in the tree). 7.0-specific
+  adaptation: the 5.6-style `$_SERVER` environment loop — no-argument
+  `getenv()` only exists since PHP 7.1 and aborts a stock 7.0 test run
+  with `ArgumentCountError`. Result: **4 pass / 1 fail**, the fail is
+  `rfc1867_sid_invalid.phpt` — stock parity, it fails identically on the
+  untouched distro 7.0.33 backup (session save-path/env wording)
+- ✅ Automated CI dry-run in GitHub Actions verified green
+
+**PHP 7.1.33 enhanced-universal & remicollet**:
+
+- ✅ `patch -p1` applies cleanly on pristine `php-7.1.33` and `php-7.1.9` (contributed by @lovelock)
+- ✅ Dedicated `php-7.1-enhanced-remicollet.patch` applies with 0 rejects against `remicollet/php-src-security` (`PHP-7.1-security-backports` branch)
+- ✅ Enhanced patch at official PHP 8.2.35 parity: chain-C refusal, reserved-props rejection, `post_max_size` warning hooks, `$_SESSION` dropped after upload
+- ✅ Official 8.2.35 security tests adapted for PHP 7.1 PASS under php-cgi
+- ✅ Automated CI dry-run and full compile smoke test pass in GitHub Actions
+
+**PHP 7.2.34 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
+
+- ✅ `patch -p1` applies cleanly on pristine `php-7.2.34` (23 files)
+- ✅ `configure` + `make -j4` → success, binary runs (php, php-cgi)
+- ✅ `multipart/form-data` POST with fields + file upload works
+- ✅ Enhanced patch at official PHP 8.2.35 parity (chain-C refusal
+  guard in `php_session_rfc1867_update()` / `php_session_rfc1867_cleanup()`,
+  `post_max_size` warning hooks, `$_SESSION` dropped after the upload)
+- ✅ Official 8.2.35 test suite (adapted for PHP 7.2): `rfc1867.phpt`,
+  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`,
+  `rfc1867_sid_invalid.phpt` — all PASS under php-cgi (same 7.x
+  adaptations as 7.3; additionally PHP 7.2's parser rejects the
+  `foo(<<<'PHP' ... PHP);` one-line heredoc close)
+- ✅ `make test` subset (1605 tests: ext/session, serialize, file,
+  general_functions; php-cgi tests included): **1249 pass /
+  353 skip / 0 fail / 3 xfail**
+- ✅ Stock discriminator: all three adapted tests FAIL on pristine
+  7.2.34 and PASS on the patched build; the same subset on stock
+  has 1 fail (`rfc1867_sid_invalid.phpt`)
+- ✅ `post_max_size` bypass — via the `tests/feedpost/` harness:
+  pristine build accepts the whole body silently (`LEN=500`),
+  patched build emits the official warning
+
 **PHP 7.3.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
 - ✅ `patch -p1` applies cleanly on pristine `php-7.3.33` (25 files)
@@ -519,54 +567,6 @@ tests/
   (missing Content-Length, `post_max_size=100`): pristine build
   accepts the whole body silently (`LEN=500`), patched build emits
   the official "Actual POST length does not match Content-Length" warning
-
-**PHP 7.2.34 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
-
-- ✅ `patch -p1` applies cleanly on pristine `php-7.2.34` (23 files)
-- ✅ `configure` + `make -j4` → success, binary runs (php, php-cgi)
-- ✅ `multipart/form-data` POST with fields + file upload works
-- ✅ Enhanced patch at official PHP 8.2.35 parity (chain-C refusal
-  guard in `php_session_rfc1867_update()` / `php_session_rfc1867_cleanup()`,
-  `post_max_size` warning hooks, `$_SESSION` dropped after the upload)
-- ✅ Official 8.2.35 test suite (adapted for PHP 7.2): `rfc1867.phpt`,
-  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`,
-  `rfc1867_sid_invalid.phpt` — all PASS under php-cgi (same 7.x
-  adaptations as 7.3; additionally PHP 7.2's parser rejects the
-  `foo(<<<'PHP' ... PHP);` one-line heredoc close)
-- ✅ `make test` subset (1605 tests: ext/session, serialize, file,
-  general_functions; php-cgi tests included): **1249 pass /
-  353 skip / 0 fail / 3 xfail**
-- ✅ Stock discriminator: all three adapted tests FAIL on pristine
-  7.2.34 and PASS on the patched build; the same subset on stock
-  has 1 fail (`rfc1867_sid_invalid.phpt`)
-- ✅ `post_max_size` bypass — via the `tests/feedpost/` harness:
-  pristine build accepts the whole body silently (`LEN=500`),
-  patched build emits the official warning
-
-**PHP 7.1.33 enhanced-universal & remicollet**:
-
-- ✅ `patch -p1` applies cleanly on pristine `php-7.1.33` and `php-7.1.9` (contributed by @lovelock)
-- ✅ Dedicated `php-7.1-enhanced-remicollet.patch` applies with 0 rejects against `remicollet/php-src-security` (`PHP-7.1-security-backports` branch)
-- ✅ Enhanced patch at official PHP 8.2.35 parity: chain-C refusal, reserved-props rejection, `post_max_size` warning hooks, `$_SESSION` dropped after upload
-- ✅ Official 8.2.35 security tests adapted for PHP 7.1 PASS under php-cgi
-- ✅ Automated CI dry-run and full compile smoke test pass in GitHub Actions
-
-**PHP 7.0.33 enhanced-universal**:
-
-- ✅ `patch -p1` applies cleanly on pristine `php-7.0.33` (21 files)
-- ✅ `configure` + `make` → success, CLI binary runs and passes smoke test
-- ✅ Incomplete class decode window closed: `incomplete_classes_only` gate in `var_unserializer` before class lookup in `O:` handler (no autoload / callback / `__wakeup`)
-- ✅ Discriminator harness matches official golden output (`bool(false)` + `string(20) "upload_progress_key|"`)
-- ✅ Official 8.2.35 tests adapted for PHP 7.0 and bundled in the patch:
-  `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`
-  (plus `rfc1867.phpt`, `rfc1867_sid_invalid.phpt`, regression control
-  `incomplete_class_raw_payload_markers.phpt` in the tree). 7.0-specific
-  adaptation: the 5.6-style `$_SERVER` environment loop — no-argument
-  `getenv()` only exists since PHP 7.1 and aborts a stock 7.0 test run
-  with `ArgumentCountError`. Result: **4 pass / 1 fail**, the fail is
-  `rfc1867_sid_invalid.phpt` — stock parity, it fails identically on the
-  untouched distro 7.0.33 backup (session save-path/env wording)
-- ✅ Automated CI dry-run in GitHub Actions verified green
 
 **PHP 7.4.33 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
