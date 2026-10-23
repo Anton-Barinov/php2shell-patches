@@ -115,6 +115,15 @@ jobs:
           - name: "PHP 7.3 Security Tree"
             branch: "PHP-7.3-security-backports"
             patch: "patches/php-7.3-enhanced-remicollet.patch"
+          - name: "PHP 7.4 Security Tree"
+            branch: "PHP-7.4-security-backports"
+            patch: "patches/php-7.4-enhanced-remicollet.patch"
+          - name: "PHP 8.0 Security Tree"
+            branch: "PHP-8.0-security-backports"
+            patch: "patches/php-8.0-enhanced-remicollet.patch"
+          - name: "PHP 8.1 Security Tree"
+            branch: "PHP-8.1-security-backports"
+            patch: "patches/php-8.1-enhanced-remicollet.patch"
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4

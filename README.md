@@ -51,9 +51,9 @@ stays enabled.
 | 8.4.x < 8.4.27 | ✅ official | same |
 | 8.3.x < 8.3.36 | ✅ official | same |
 | 8.2.x < 8.2.35 | ✅ official | same (note: 8.2 EOL 31 Dec 2026 — plan upgrade) |
-| 8.1.x | ⚠️ backport | `php-8.1-minimal.patch` (PHP group) **or** `php-8.1-enhanced-universal.patch` |
-| 8.0.x | ⚠️ backport | `php-8.0-minimal.patch` (PHP group) **or** `php-8.0-enhanced-universal.patch` |
-| 7.4.x | ⚠️ backport | `php-7.4-minimal.patch` (official) **or** `php-7.4-enhanced-universal.patch` |
+| 8.1.x | ⚠️ backport | `php-8.1-minimal.patch` (PHP group) **or** `php-8.1-enhanced-universal.patch` (vanilla php.net) **or** `php-8.1-enhanced-remicollet.patch` (for Remi's tree) |
+| 8.0.x | ⚠️ backport | `php-8.0-minimal.patch` (PHP group) **or** `php-8.0-enhanced-universal.patch` (vanilla php.net) **or** `php-8.0-enhanced-remicollet.patch` (for Remi's tree) |
+| 7.4.x | ⚠️ backport | `php-7.4-minimal.patch` (official) **or** `php-7.4-enhanced-universal.patch` (vanilla php.net) **or** `php-7.4-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.3.x | ⚠️ backport | `php-7.3-minimal.patch` **or** `php-7.3-enhanced-universal.patch` (vanilla php.net) **or** `php-7.3-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.2.x | ⚠️ backport | `php-7.2-minimal.patch` **or** `php-7.2-enhanced-universal.patch` (vanilla php.net) **or** `php-7.2-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.1.x | ⚠️ backport | `php-7.1-minimal.patch` **or** `php-7.1-enhanced-universal.patch` (vanilla php.net, contributed by @lovelock) **or** `php-7.1-enhanced-remicollet.patch` (for Remi's tree) |
@@ -363,10 +363,13 @@ rebuild from known-good.
 patches/
   php-8.1-minimal.patch              # official PHP-group minimal backport
   php-8.1-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
+  php-8.1-enhanced-remicollet.patch  # community enhanced for 8.1: adapted for remicollet tree
   php-8.0-minimal.patch              # official PHP-group minimal backport
   php-8.0-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
+  php-8.0-enhanced-remicollet.patch  # community enhanced for 8.0: adapted for remicollet tree
   php-7.4-minimal.patch              # official PHP-group minimal backport
   php-7.4-enhanced-universal.patch   # community: root-cause UAF fix + var_unserializer.c bundled
+  php-7.4-enhanced-remicollet.patch  # community enhanced for 7.4: adapted for remicollet tree
   php-7.3-minimal.patch              # backport for PHP 7.3
   php-7.3-enhanced-universal.patch   # community enhanced for 7.3 (vanilla php.net tarball)
   php-7.3-enhanced-remicollet.patch  # community enhanced for 7.3: adapted for remicollet tree
