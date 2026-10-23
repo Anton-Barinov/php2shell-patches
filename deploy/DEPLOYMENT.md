@@ -391,3 +391,38 @@ already writes (scan order runs after `php.ini`, so the value wins):
 
 For hosts already swapped with an older script version, append the two
 `default_socket` lines and `systemctl reload phpX.Y-fpm` — no rebuild needed.
+
+---
+
+## P11. Dynamic library mismatch or missing runtime dependencies (`ldd`)
+
+**What happens.** A freshly compiled binary builds cleanly, but when swapped into
+`/usr/bin` or `/usr/sbin`, running `php-fpm` fails immediately with dynamic loader errors:
+
+```
+php-fpm7.3: error while loading shared libraries: libssl.so.1.1: cannot open shared object file: No such file or directory
+```
+
+**Why.** When compiling on build servers with multiple OpenSSL or curl versions in `/usr/local` or custom toolchains, the binary may link against shared libraries that are not resolvable in the default runtime dynamic link paths of the target environment.
+
+**Fix.** Before touching system binaries or replacing production files, `swap-system-php.sh` and `swap-aapanel-php.sh` run dynamic library resolution checks (`ldd`) on `sapi/cli/php` and `sapi/fpm/php-fpm`. If any `not found` dependency is detected, the script terminates immediately with `FATAL: ... has unresolved dynamic library dependencies`.
+
+---
+
+## aaPanel / Baota (BT Panel) Deployments
+
+If your server runs **aaPanel** or **Baota**, PHP installations reside in `/www/server/php/<ver>` (e.g., `/www/server/php/74`). Standard distro packages (`/etc/php/X.Y`) are not used; instead, aaPanel uses self-contained builds managed via `/etc/init.d/php-fpm-<ver>`.
+
+Use `deploy/swap-aapanel-php.sh`:
+- **Build**: `./deploy/swap-aapanel-php.sh build <ver> [patch-file]`
+  - Automatically extracts original configure flags via `php -i`.
+  - Discovers custom libraries from `/usr/local` and sets `PKG_CONFIG_PATH`.
+  - Employs RAM-safe concurrency to avoid OOM kills.
+  - Verifies the patched binary offline before installation.
+- **Install**: `./deploy/swap-aapanel-php.sh install <ver>`
+  - Creates a dated snapshot `/www/server/php/<ver>.bak-<timestamp>`.
+  - Gracefully restarts `php-fpm`.
+  - Tests configuration via `php-fpm -t`.
+  - Verifies module baseline matches pre-swap state.
+  - Automatically performs full rollback if any check fails.
+

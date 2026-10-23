@@ -223,6 +223,25 @@ it documents every failure mode with real symptoms and log snippets
 (HTTP 500s, dead fpm pools, unloadable packaged `.so`) and the tested
 rollback procedure.
 
+### B3. aaPanel / Baota (BT Panel) deployment
+
+On aaPanel / Baota hosting environments, PHP versions live in `/www/server/php/<ver>` (e.g., `54`, `55`, `56`, `70`, `71`, `72`, `73`, `74`, `80`, `81`). Use `deploy/swap-aapanel-php.sh` for an offline build, dependency checks, and automated zero-downtime swap with rollback:
+
+```bash
+# Check status and patch state:
+./deploy/swap-aapanel-php.sh status 74
+
+# Step 1: Offline build with RAM-safe concurrency and dynamic dependency discovery
+./deploy/swap-aapanel-php.sh build 74 patches/php-7.4-enhanced-universal.patch
+
+# Step 2: Atomic install (snapshots prefix -> stops FPM -> make install -> tests config -> restarts)
+# Automatically rolls back if php-fpm -t fails, modules are missing, or patch verification fails:
+./deploy/swap-aapanel-php.sh install 74
+
+# Roll back anytime:
+./deploy/swap-aapanel-php.sh rollback 74
+```
+
 ### C. PHP 5.6 — last resort
 
 ```bash
@@ -369,6 +388,7 @@ build/
   build-patched-php.sh               # download + patch + configure + make install
 deploy/
   swap-system-php.sh                 # in-place distro swap: build + backup + smoke + restart
+  swap-aapanel-php.sh                # aaPanel / Baota (BT Panel) builder and installer with auto-rollback
   restore-system-php.sh              # rollback one version (earliest *.bak-* + *.swapbak)
   retro-swapbak.sh                   # backfill .swapbak on hosts swapped by older scripts
   DEPLOYMENT.md                      # every pitfall we hit, with real symptoms/fixes
@@ -389,6 +409,9 @@ tests/
   retro-test.sh                      # 6-scenario unit test for retro-swapbak.sh
   restore-test.sh                    # 8-scenario unit test for restore-system-php.sh
                                       #  (sandboxed end-to-end run of the real script)
+  cvecheck-test.sh                   # 7-scenario unit test for verify/ probe suite
+  stress.php                         # high-volume nested array & memory stress harness
+  stress-test.sh                     # test driver for array stress and boundary verification
   run-all.sh                         # one-command gate: runs every harness above
 ```
 

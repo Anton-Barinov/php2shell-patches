@@ -195,6 +195,29 @@ if [ -n "${UNAVAILABLE// /}" ]; then
   exit 1
 fi
 
+# Dynamic library resolution check
+if command -v ldd >/dev/null 2>&1; then
+  for b in sapi/cli/php sapi/fpm/php-fpm sapi/cgi/php-cgi; do
+    if [ -f "$b" ]; then
+      if ldd "$b" 2>/dev/null | grep -qi "not found"; then
+        echo "FATAL: $b has unresolved dynamic library dependencies:" >&2
+        ldd "$b" | grep -i "not found" >&2
+        exit 1
+      fi
+    fi
+  done
+fi
+
+# Patch verification probe
+if [ -n "$PATCH" ]; then
+  chk_out=$(sapi/cli/php -n -d memory_limit=8M -d display_errors=1 -r '$a = str_repeat("x", 32 * 1024 * 1024);' 2>/dev/null || true)
+  chk_rc=$?
+  if [ "$chk_rc" -ne 1 ] || [ -n "$chk_out" ]; then
+    echo "FATAL: Newly built sapi/cli/php failed patch verification (expected exit 1 with empty stdout)" >&2
+    exit 1
+  fi
+fi
+
 # --- swap -------------------------------------------------------------------
 TS="$(date +%Y%m%d%H%M%S)"
 cp -a "/usr/bin/php$XY" "/usr/bin/php$XY.bak-$TS"
