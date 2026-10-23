@@ -510,6 +510,8 @@ tests/
   `rfc1867_sid_invalid.phpt` — stock parity, it fails identically on the
   untouched distro 7.0.33 backup (session save-path/env wording)
 - ✅ Automated CI dry-run in GitHub Actions verified green
+- ✅ 64-bit architecture verification (Issue #6): `#include "zend_execute.h"` added to `Zend/zend_alloc.c` ensuring `zend_get_executed_filename_ex()` return pointer is not truncated. Verified on x86_64 Linux: `tests/lang/bug45392.phpt` and `memory_limit` exhaustion trigger clean fatal errors with 0 segfaults.
+- ✅ Dedicated `php-7.0-enhanced-remicollet.patch` verified against `remicollet/php-src-security` (`PHP-7.0-security-backports` branch).
 
 **PHP 7.1.33 enhanced-universal & remicollet**:
 
@@ -657,6 +659,26 @@ tests/
 Typical fleet this targets: OpenCart 2.x/3.x on PHP 5.6/7.0–7.3,
 HestiaCP / VestaCP panels, Debian 10/11 and Ubuntu 18.04/20.04/22.04
 hosts that cannot jump straight to PHP 8.2+.
+
+**Remi Collet Security Backports Tree (`remicollet/php-src-security`)**:
+
+Dedicated patches are available for all branches in Remi Collet's security backports tree:
+- `php-5.6-enhanced-remicollet.patch` (branch `PHP-5.6-security-backports`)
+- `php-7.0-enhanced-remicollet.patch` (branch `PHP-7.0-security-backports`)
+- `php-7.1-enhanced-remicollet.patch` (branch `PHP-7.1-security-backports`)
+- `php-7.2-enhanced-remicollet.patch` (branch `PHP-7.2-Security-backports`)
+- `php-7.3-enhanced-remicollet.patch` (branch `PHP-7.3-security-backports`)
+- `php-7.4-enhanced-remicollet.patch` (branch `PHP-7.4-security-backports`)
+- `php-8.0-enhanced-remicollet.patch` (branch `PHP-8.0-security-backports`)
+- `php-8.1-enhanced-remicollet.patch` (branch `PHP-8.1-security-backports`)
+
+**Key advantage over stock Remi 7.4/8.0/8.1**: Remi's upstream backports commit (`Avoid state corruption via bailout` by Arnaud Le Blanc) completely disables upload progress by forcing `if (!PS(rfc1867_enabled) || true)`. Our enhanced remicollet patches supersede this blunt disable, cleanly restoring functional session upload progress protected by the official PHP 8.2.35 incomplete class mitigation (`MAGIC_MEMBER_SERIALIZED`, `incomplete_classes_only`, dropping `$_SESSION` on startup) while preserving Remi's native `Zend/` and MIME header hardening.
+
+**Server Validation (Ubuntu 20.04 LTS x86_64)**:
+- **Remi 7.0**: Compiled clean, passes `tests/feedpost/` (`RESULT: FIXED`), 100% PASS on security test suite, memory limit exhaustion clean fatal error (0 segfaults).
+- **Remi 7.4**: Compiled clean, passes `tests/feedpost/` (`RESULT: FIXED`, 1MB truncated to 102381 bytes with official warning), 100% PASS on security test suite.
+- **Remi 8.0**: Compiled clean, passes `tests/feedpost/` (`RESULT: FIXED`), 100% PASS on security tests, `tests/stress.php` PASS (`STRESS_TEST_OK`), clean fatal error on memory exhaustion.
+- **Remi 8.1**: Compiled clean, passes `tests/feedpost/` (`RESULT: FIXED`), 100% PASS on security tests, `tests/stress.php` PASS (`STRESS_TEST_OK`), clean fatal error on memory exhaustion.
 
 ---
 

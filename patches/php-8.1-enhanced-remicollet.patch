@@ -1,920 +1,12 @@
-diff --git # php2shell: enhanced universal security patch for PHP 8.1 (Remi Collet security backports tree)
+# php2shell: enhanced universal security patch for PHP 8.1 (Remi Collet security backports tree)
 # Targets: remicollet/php-src-security (branch PHP-8.1-security-backports)
 #
 # Addresses:
-#  - CVE-2026-109618: multipart/form-data boundary & parser hardening (max_multipart_body_parts, post_max_size)
+#  - CVE-2026-109618: multipart/form-data boundary & parser hardening (post_max_size bounds)
 #  - CVE-2026-109619: session upload progress incomplete class mitigation (no user code execution during upload)
-#  - Hash collision & DoS hardening (deterministic hash flood mitigation)
-#  - LFI & session serializer injection hardening (null byte, pipe, CRLF sanitization)
-#  - Re-enables safe upload progress without arbitrary code execution
+#  - Re-enables safe upload progress without arbitrary code execution (supersedes Remi's || true force-disable)
+#  - Session serializer injection hardening (null byte, pipe, CRLF sanitization)
 #
-diff --git a/Zend/zend_API.h b/Zend/zend_API.h
-index a32b83c0..9ed1a3fb 100644
---- a/Zend/zend_API.h
-+++ b/Zend/zend_API.h
-@@ -490,7 +490,6 @@ ZEND_API const char *zend_get_type_by_const(int type);
- 
- #define array_init(arg)				ZVAL_ARR((arg), zend_new_array(0))
- #define array_init_size(arg, size)	ZVAL_ARR((arg), zend_new_array(size))
--#define array_init_singleton(arg)	ZVAL_ARR((arg), zend_new_array_singleton())
- ZEND_API void object_init(zval *arg);
- ZEND_API zend_result object_init_ex(zval *arg, zend_class_entry *ce);
- ZEND_API zend_result object_and_properties_init(zval *arg, zend_class_entry *ce, HashTable *properties);
-diff --git a/Zend/zend_alloc.h b/Zend/zend_alloc.h
-index 72becadc..9603af8a 100644
---- a/Zend/zend_alloc.h
-+++ b/Zend/zend_alloc.h
-@@ -403,8 +403,6 @@ static void apc_init_heap(void)
- size_t zend_mm_globals_size(void);
- #endif
- 
--ZEND_API ZEND_COLD ZEND_NORETURN void zend_mm_safe_error_ex(const char *format, ...);
--
- END_EXTERN_C()
- 
- #endif
-diff --git a/Zend/zend_hash.c b/Zend/zend_hash.c
-index 65f31c2b..b96a9511 100644
---- a/Zend/zend_hash.c
-+++ b/Zend/zend_hash.c
-@@ -119,7 +119,7 @@ static zend_always_inline uint32_t zend_hash_check_size(uint32_t nSize)
- 	if (nSize <= HT_MIN_SIZE) {
- 		return HT_MIN_SIZE;
- 	} else if (UNEXPECTED(nSize >= HT_MAX_SIZE)) {
--		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%u * %zu + %zu)", nSize, sizeof(Bucket), sizeof(Bucket));
-+		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%u * %zu + %zu)", nSize, sizeof(Bucket), sizeof(Bucket));
- 	}
- 
- #ifdef ZEND_WIN32
-@@ -276,13 +276,6 @@ ZEND_API HashTable* ZEND_FASTCALL _zend_new_array_0(void)
- 	return ht;
- }
- 
--ZEND_API HashTable* ZEND_FASTCALL zend_new_array_singleton(void)
--{
--	HashTable *ht = _zend_new_array_0();
--	ht->nTableSize = 1;
--	return ht;
--}
--
- ZEND_API HashTable* ZEND_FASTCALL _zend_new_array(uint32_t nSize)
- {
- 	HashTable *ht = emalloc(sizeof(HashTable));
-@@ -314,7 +307,7 @@ ZEND_API void ZEND_FASTCALL zend_hash_packed_grow(HashTable *ht)
- {
- 	HT_ASSERT_RC1(ht);
- 	if (ht->nTableSize >= HT_MAX_SIZE) {
--		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%u * %zu + %zu)", ht->nTableSize * 2, sizeof(Bucket), sizeof(Bucket));
-+		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%u * %zu + %zu)", ht->nTableSize * 2, sizeof(Bucket), sizeof(Bucket));
- 	}
- 	uint32_t newTableSize = ht->nTableSize * 2;
- 	HT_SET_DATA_ADDR(ht, perealloc2(HT_GET_DATA_ADDR(ht), HT_SIZE_EX(newTableSize, HT_MIN_MASK), HT_USED_SIZE(ht), GC_FLAGS(ht) & IS_ARRAY_PERSISTENT));
-@@ -1240,7 +1233,7 @@ static void ZEND_FASTCALL zend_hash_do_resize(HashTable *ht)
- 		pefree(old_data, GC_FLAGS(ht) & IS_ARRAY_PERSISTENT);
- 		zend_hash_rehash(ht);
- 	} else {
--		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%u * %zu + %zu)", ht->nTableSize * 2, sizeof(Bucket) + sizeof(uint32_t), sizeof(Bucket));
-+		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%u * %zu + %zu)", ht->nTableSize * 2, sizeof(Bucket) + sizeof(uint32_t), sizeof(Bucket));
- 	}
- }
- 
-diff --git a/Zend/zend_hash.h b/Zend/zend_hash.h
-index 09a7994d..092682d6 100644
---- a/Zend/zend_hash.h
-+++ b/Zend/zend_hash.h
-@@ -314,7 +314,6 @@ ZEND_API void ZEND_FASTCALL zend_hash_rehash(HashTable *ht);
- #endif
- 
- ZEND_API HashTable* ZEND_FASTCALL _zend_new_array_0(void);
--ZEND_API HashTable* ZEND_FASTCALL zend_new_array_singleton(void);
- ZEND_API HashTable* ZEND_FASTCALL _zend_new_array(uint32_t size);
- ZEND_API HashTable* ZEND_FASTCALL zend_new_pair(zval *val1, zval *val2);
- ZEND_API uint32_t zend_array_count(HashTable *ht);
-diff --git a/Zend/zend_multiply.h b/Zend/zend_multiply.h
-index bfe1b8e8..c6cd472a 100644
---- a/Zend/zend_multiply.h
-+++ b/Zend/zend_multiply.h
-@@ -321,7 +321,7 @@ static zend_always_inline size_t zend_safe_address_guarded(size_t nmemb, size_t
- 	size_t ret = zend_safe_address(nmemb, size, offset, &overflow);
- 
- 	if (UNEXPECTED(overflow)) {
--		zend_mm_safe_error_ex("Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
-+		zend_error_noreturn(E_ERROR, "Possible integer overflow in memory allocation (%zu * %zu + %zu)", nmemb, size, offset);
- 		return 0;
- 	}
- 	return ret;
-@@ -334,7 +334,7 @@ static zend_always_inline size_t zend_safe_addmult(size_t nmemb, size_t size, si
- 	size_t ret = zend_safe_address(nmemb, size, offset, &overflow);
- 
- 	if (UNEXPECTED(overflow)) {
--		zend_mm_safe_error_ex("Possible integer overflow in %s (%zu * %zu + %zu)", message, nmemb, size, offset);
-+		zend_error_noreturn(E_ERROR, "Possible integer overflow in %s (%zu * %zu + %zu)", message, nmemb, size, offset);
- 		return 0;
- 	}
- 	return ret;
-diff --git a/Zend/zend_strtod.c b/Zend/zend_strtod.c
-index 7f72c82f..3e7f9037 100644
---- a/Zend/zend_strtod.c
-+++ b/Zend/zend_strtod.c
-@@ -593,7 +593,7 @@ Balloc
- 		rv = (Bigint *)MALLOC(sizeof(Bigint) + (x-1)*sizeof(ULong));
- 		if (!rv) {
- 			FREE_DTOA_LOCK(0);
--			zend_mm_safe_error_ex("Balloc() failed to allocate memory");
-+			zend_error_noreturn(E_ERROR, "Balloc() failed to allocate memory");
- 		}
- #else
- 		len = (sizeof(Bigint) + (x-1)*sizeof(ULong) + sizeof(double) - 1)
-@@ -606,7 +606,7 @@ Balloc
- 			rv = (Bigint*)MALLOC(len*sizeof(double));
- 			if (!rv) {
- 				FREE_DTOA_LOCK(0);
--				zend_mm_safe_error_ex("Balloc() failed to allocate memory");
-+				zend_error_noreturn(E_ERROR, "Balloc() failed to allocate memory");
- 			}
- #endif
- 		rv->k = k;
-diff --git a/Zend/zend_types.h b/Zend/zend_types.h
-index ab28b0fa..5bc47dd3 100644
---- a/Zend/zend_types.h
-+++ b/Zend/zend_types.h
-@@ -448,21 +448,17 @@ struct _zend_array {
- # define HT_HASH_RESET(ht) do { \
- 		char *p = (char*)&HT_HASH(ht, (ht)->nTableMask); \
- 		size_t size = HT_HASH_SIZE((ht)->nTableMask); \
--		if (UNEXPECTED(size < 64)) { \
--			memset(p, HT_INVALID_IDX, size); \
--		} else { \
--			__m128i xmm0 = _mm_setzero_si128(); \
--			xmm0 = _mm_cmpeq_epi8(xmm0, xmm0); \
--			ZEND_ASSERT(size >= 64 && ((size & 0x3f) == 0)); \
--			do { \
--				_mm_storeu_si128((__m128i*)p, xmm0); \
--				_mm_storeu_si128((__m128i*)(p+16), xmm0); \
--				_mm_storeu_si128((__m128i*)(p+32), xmm0); \
--				_mm_storeu_si128((__m128i*)(p+48), xmm0); \
--				p += 64; \
--				size -= 64; \
--			} while (size != 0); \
--		} \
-+		__m128i xmm0 = _mm_setzero_si128(); \
-+		xmm0 = _mm_cmpeq_epi8(xmm0, xmm0); \
-+		ZEND_ASSERT(size >= 64 && ((size & 0x3f) == 0)); \
-+		do { \
-+			_mm_storeu_si128((__m128i*)p, xmm0); \
-+			_mm_storeu_si128((__m128i*)(p+16), xmm0); \
-+			_mm_storeu_si128((__m128i*)(p+32), xmm0); \
-+			_mm_storeu_si128((__m128i*)(p+48), xmm0); \
-+			p += 64; \
-+			size -= 64; \
-+		} while (size != 0); \
- 	} while (0)
- #else
- # define HT_HASH_RESET(ht) \
-diff --git a/Zend/zend_vm_def.h b/Zend/zend_vm_def.h
-index ad893ebf..a6f86a9e 100644
---- a/Zend/zend_vm_def.h
-+++ b/Zend/zend_vm_def.h
-@@ -408,7 +408,7 @@ ZEND_VM_HANDLER(8, ZEND_CONCAT, CONST|TMPVAR|CV, CONST|TMPVAR|CV, SPEC(NO_CONST_
- 		    size_t len = ZSTR_LEN(op1_str);
- 
- 			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
-+				zend_error_noreturn(E_ERROR, "Integer overflow in memory allocation");
- 			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -417,9 +417,6 @@ ZEND_VM_HANDLER(8, ZEND_CONCAT, CONST|TMPVAR|CV, CONST|TMPVAR|CV, SPEC(NO_CONST_
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -3186,9 +3183,6 @@ ZEND_VM_COLD_CONSTCONST_HANDLER(53, ZEND_FAST_CONCAT, CONST|TMPVAR|CV, CONST|TMP
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -3196,9 +3190,6 @@ ZEND_VM_COLD_CONSTCONST_HANDLER(53, ZEND_FAST_CONCAT, CONST|TMPVAR|CV, CONST|TMP
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-diff --git a/Zend/zend_vm_execute.h b/Zend/zend_vm_execute.h
-index dc78ba4a..5ee1c2c9 100644
---- a/Zend/zend_vm_execute.h
-+++ b/Zend/zend_vm_execute.h
-@@ -6549,9 +6549,6 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -6559,9 +6556,6 @@ static ZEND_VM_COLD ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -8462,7 +8456,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CONST_TMPVAR_HANDL
- 		    size_t len = ZSTR_LEN(op1_str);
- 
- 			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
-+				zend_error_noreturn(E_ERROR, "Integer overflow in memory allocation");
- 			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -8471,9 +8465,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CONST_TMPVAR_HANDL
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -8881,9 +8872,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CONST_TMPVAR_
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -8891,9 +8879,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CONST_TMPVAR_
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -10836,7 +10821,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CONST_CV_HANDLER(Z
- 		    size_t len = ZSTR_LEN(op1_str);
- 
- 			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
-+				zend_error_noreturn(E_ERROR, "Integer overflow in memory allocation");
- 			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -10845,9 +10830,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CONST_CV_HANDLER(Z
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -11255,9 +11237,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CONST_CV_HAND
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -11265,9 +11244,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CONST_CV_HAND
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -14890,7 +14866,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_TMPVAR_CONST_HANDL
- 		    size_t len = ZSTR_LEN(op1_str);
- 
- 			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
-+				zend_error_noreturn(E_ERROR, "Integer overflow in memory allocation");
- 			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -14899,9 +14875,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_TMPVAR_CONST_HANDL
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -15623,9 +15596,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_TMPVAR_CONST_
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -15633,9 +15603,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_TMPVAR_CONST_
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -16328,7 +16295,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_TMPVAR_TMPVAR_HAND
- 		    size_t len = ZSTR_LEN(op1_str);
- 
- 			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
-+				zend_error_noreturn(E_ERROR, "Integer overflow in memory allocation");
- 			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -16337,9 +16304,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_TMPVAR_TMPVAR_HAND
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -17061,9 +17025,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_TMPVAR_TMPVAR
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -17071,9 +17032,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_TMPVAR_TMPVAR
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -18023,7 +17981,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_TMPVAR_CV_HANDLER(
- 		    size_t len = ZSTR_LEN(op1_str);
- 
- 			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
-+				zend_error_noreturn(E_ERROR, "Integer overflow in memory allocation");
- 			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -18032,9 +17990,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_TMPVAR_CV_HANDLER(
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -18394,9 +18349,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_TMPVAR_CV_HAN
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -18404,9 +18356,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_TMPVAR_CV_HAN
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -39702,7 +39651,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CV_CONST_HANDLER(Z
- 		    size_t len = ZSTR_LEN(op1_str);
- 
- 			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
-+				zend_error_noreturn(E_ERROR, "Integer overflow in memory allocation");
- 			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -39711,9 +39660,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CV_CONST_HANDLER(Z
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -42196,9 +42142,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CV_CONST_HAND
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -42206,9 +42149,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CV_CONST_HAND
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -43520,7 +43460,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CV_TMPVAR_HANDLER(
- 		    size_t len = ZSTR_LEN(op1_str);
- 
- 			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
-+				zend_error_noreturn(E_ERROR, "Integer overflow in memory allocation");
- 			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -43529,9 +43469,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CV_TMPVAR_HANDLER(
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -45943,9 +45880,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CV_TMPVAR_HAN
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -45953,9 +45887,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CV_TMPVAR_HAN
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -48826,7 +48757,7 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CV_CV_HANDLER(ZEND
- 		    size_t len = ZSTR_LEN(op1_str);
- 
- 			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
-+				zend_error_noreturn(E_ERROR, "Integer overflow in memory allocation");
- 			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -48835,9 +48766,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_CONCAT_SPEC_CV_CV_HANDLER(ZEND
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-@@ -51348,9 +51276,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CV_CV_HANDLER
- 		    !ZSTR_IS_INTERNED(op1_str) && GC_REFCOUNT(op1_str) == 1) {
- 		    size_t len = ZSTR_LEN(op1_str);
- 
--			if (UNEXPECTED(len > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_extend(op1_str, len + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str) + len, ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
- 			ZVAL_NEW_STR(EX_VAR(opline->result.var), str);
-@@ -51358,9 +51283,6 @@ static ZEND_OPCODE_HANDLER_RET ZEND_FASTCALL ZEND_FAST_CONCAT_SPEC_CV_CV_HANDLER
- 				zend_string_release_ex(op2_str, 0);
- 			}
- 		} else {
--			if (UNEXPECTED(ZSTR_LEN(op1_str) > ZSTR_MAX_LEN - ZSTR_LEN(op2_str))) {
--				zend_mm_safe_error_ex("Integer overflow in memory allocation");
--			}
- 			str = zend_string_alloc(ZSTR_LEN(op1_str) + ZSTR_LEN(op2_str), 0);
- 			memcpy(ZSTR_VAL(str), ZSTR_VAL(op1_str), ZSTR_LEN(op1_str));
- 			memcpy(ZSTR_VAL(str) + ZSTR_LEN(op1_str), ZSTR_VAL(op2_str), ZSTR_LEN(op2_str)+1);
-diff --git a/ext/session/php_session.h b/ext/session/php_session.h
-index bc8c3548..b9c41ad2 100644
---- a/ext/session/php_session.h
-+++ b/ext/session/php_session.h
-@@ -133,10 +133,10 @@ typedef struct _php_session_rfc1867_progress {
- 	size_t    content_length;
- 
- 	zval      data;                 /* the array exported to session data */
--	zval	 *post_bytes_processed; /* data["bytes_processed"] */
-+	zend_long post_bytes_processed;
- 	zval      files;                /* data["files"] array */
- 	zval      current_file;         /* array of currently uploading file */
--	zval	 *current_file_bytes_processed;
-+	zend_long current_file_bytes_processed;
- } php_session_rfc1867_progress;
- 
- typedef struct _php_ps_globals {
-@@ -201,6 +201,9 @@ typedef struct _php_ps_globals {
- 	bool in_save_handler; /* state if session is in save handler or not */
- 	bool set_handler;     /* state if session module i setting handler or not */
- 	zend_string *session_vars; /* serialized original session data */
-+
-+	zend_bool in_rfc1867_update; /* php2shell: php_session_rfc1867_update() is running (official PHP 8.2.35 fix) */
-+	zend_bool rfc1867_decode_refused; /* php2shell: php_session_decode() refused the data and destroyed the session */
- } php_ps_globals;
- 
- typedef php_ps_globals zend_ps_globals;
-diff --git a/ext/session/session.c b/ext/session/session.c
-index d72ae27b..14cf6148 100644
---- a/ext/session/session.c
-+++ b/ext/session/session.c
-@@ -115,6 +115,7 @@ static inline void php_rinit_session_globals(void) /* {{{ */
- 	PS(set_handler) = 0;
- 	PS(mod_data) = NULL;
- 	PS(mod_user_is_open) = 0;
-+	PS(in_rfc1867_update) = 0; /* php2shell: never leak the upload-progress window across requests */
- 	PS(define_sid) = 1;
- 	PS(session_vars) = NULL;
- 	PS(module_number) = my_module_number;
-@@ -249,6 +250,7 @@ static int php_session_decode(zend_string *data) /* {{{ */
- 		return FAILURE;
- 	}
- 	if (PS(serializer)->decode(ZSTR_VAL(data), ZSTR_LEN(data)) == FAILURE) {
-+		PS(rfc1867_decode_refused) = 1; /* php2shell: must survive the destroy->rinit cycle below */
- 		php_session_destroy();
- 		php_session_track_init();
- 		php_error_docref(NULL, E_WARNING, "Failed to decode session object. Session has been destroyed");
-@@ -836,13 +838,35 @@ PHP_INI_END()
- /* ***************
-    * Serializers *
-    *************** */
-+
-+/* php2shell (official PHP 8.2.35 fix, CVE-2026-109619): the upload progress
-+ * handler (php_session_rfc1867_update()) decodes and re-encodes the session
-+ * during request startup, before user code may run. Objects are then kept as
-+ * __PHP_Incomplete_Class: no autoloading, no unserialize_callback_func, no
-+ * __wakeup(), and they are written back unchanged. */
-+static void php_session_unserialize_init(php_unserialize_data_t *var_hash)
-+{
-+	PHP_VAR_UNSERIALIZE_INIT(*var_hash);
-+	if (PS(in_rfc1867_update)) {
-+		php_var_unserialize_set_incomplete_classes_only(*var_hash, 1);
-+	}
-+}
-+
-+static void php_session_serialize_init(php_serialize_data_t *var_hash)
-+{
-+	PHP_VAR_SERIALIZE_INIT(*var_hash);
-+	if (PS(in_rfc1867_update)) {
-+		php_var_serialize_set_incomplete_classes_only(*var_hash, 1);
-+	}
-+}
-+
- PS_SERIALIZER_ENCODE_FUNC(php_serialize) /* {{{ */
- {
- 	smart_str buf = {0};
- 	php_serialize_data_t var_hash;
- 
- 	IF_SESSION_VARS() {
--		PHP_VAR_SERIALIZE_INIT(var_hash);
-+		php_session_serialize_init(&var_hash);
- 		php_var_serialize(&buf, Z_REFVAL(PS(http_session_vars)), &var_hash);
- 		PHP_VAR_SERIALIZE_DESTROY(var_hash);
- 	}
-@@ -859,7 +883,7 @@ PS_SERIALIZER_DECODE_FUNC(php_serialize) /* {{{ */
- 	zend_string *var_name = zend_string_init("_SESSION", sizeof("_SESSION") - 1, 0);
- 
- 	ZVAL_NULL(&session_vars);
--	PHP_VAR_UNSERIALIZE_INIT(var_hash);
-+	php_session_unserialize_init(&var_hash);
- 	result = php_var_unserialize(
- 		&session_vars, (const unsigned char **)&val, (const unsigned char *)endptr, &var_hash);
- 	PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
-@@ -892,7 +916,7 @@ PS_SERIALIZER_ENCODE_FUNC(php_binary) /* {{{ */
- 	php_serialize_data_t var_hash;
- 	PS_ENCODE_VARS;
- 
--	PHP_VAR_SERIALIZE_INIT(var_hash);
-+	php_session_serialize_init(&var_hash);
- 
- 	PS_ENCODE_LOOP(
- 			if (ZSTR_LEN(key) > PS_BIN_MAX) continue;
-@@ -917,7 +941,7 @@ PS_SERIALIZER_DECODE_FUNC(php_binary) /* {{{ */
- 	php_unserialize_data_t var_hash;
- 	zval *current, rv;
- 
--	PHP_VAR_UNSERIALIZE_INIT(var_hash);
-+	php_session_unserialize_init(&var_hash);
- 
- 	for (p = val; p < endptr; ) {
- 		namelen = ((unsigned char)(*p)) & (~PS_BIN_UNDEF);
-@@ -958,7 +982,7 @@ PS_SERIALIZER_ENCODE_FUNC(php) /* {{{ */
- 	php_serialize_data_t var_hash;
- 	PS_ENCODE_VARS;
- 
--	PHP_VAR_SERIALIZE_INIT(var_hash);
-+	php_session_serialize_init(&var_hash);
- 
- 	PS_ENCODE_LOOP(
- 		smart_str_appendl(&buf, ZSTR_VAL(key), ZSTR_LEN(key));
-@@ -988,7 +1012,7 @@ PS_SERIALIZER_DECODE_FUNC(php) /* {{{ */
- 	php_unserialize_data_t var_hash;
- 	zval *current, rv;
- 
--	PHP_VAR_UNSERIALIZE_INIT(var_hash);
-+	php_session_unserialize_init(&var_hash);
- 
- 	p = val;
- 
-@@ -2767,6 +2791,8 @@ static PHP_GINIT_FUNCTION(ps) /* {{{ */
- 	ps_globals->mod = NULL;
- 	ps_globals->serializer = NULL;
- 	ps_globals->mod_data = NULL;
-+	ps_globals->in_rfc1867_update = 0;
-+	ps_globals->rfc1867_decode_refused = 0;
- 	ps_globals->session_status = php_session_none;
- 	ps_globals->default_mod = NULL;
- 	ps_globals->mod_user_implemented = 0;
-@@ -2946,10 +2972,43 @@ static bool php_check_cancel_upload(php_session_rfc1867_progress *progress) /* {
- 	return Z_TYPE_P(cancel_upload) == IS_TRUE;
- } /* }}} */
- 
-+static void php_session_rfc1867_sync_counters(php_session_rfc1867_progress *progress) /* {{{ */
-+{
-+	zval *entry, *files, *file;
-+
-+	if (Z_ISUNDEF(progress->data) || Z_TYPE(progress->data) != IS_ARRAY) {
-+		return;
-+	}
-+
-+	/* php2shell: never retain HashTable bucket pointers — publishing progress
-+	 * data may separate/replace the exported array (eness root-cause fix).
-+	 * Resolve each counter afresh from the live array. */
-+	if ((entry = zend_hash_str_find(Z_ARRVAL(progress->data), "bytes_processed", sizeof("bytes_processed") - 1)) != NULL) {
-+		ZVAL_LONG(entry, progress->post_bytes_processed);
-+	}
-+	if ((files = zend_hash_str_find(Z_ARRVAL(progress->data), "files", sizeof("files") - 1)) == NULL
-+			|| Z_TYPE_P(files) != IS_ARRAY) {
-+		return;
-+	}
-+	if (zend_hash_num_elements(Z_ARRVAL_P(files)) == 0
-+			|| (file = zend_hash_index_find(Z_ARRVAL_P(files), zend_hash_num_elements(Z_ARRVAL_P(files)) - 1)) == NULL
-+			|| Z_TYPE_P(file) != IS_ARRAY) {
-+		return;
-+	}
-+	if ((entry = zend_hash_str_find(Z_ARRVAL_P(file), "bytes_processed", sizeof("bytes_processed") - 1)) != NULL) {
-+		ZVAL_LONG(entry, progress->current_file_bytes_processed);
-+	}
-+} /* }}} */
-+
- static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, int force_update) /* {{{ */
- {
-+	/* php2shell: publish the counters on every call — the throttled path
-+	 * below must not skip the write or per-file bytes go stale (stock
-+	 * 7.4 writes them directly into the array, unconditionally). */
-+	php_session_rfc1867_sync_counters(progress);
-+
- 	if (!force_update) {
--		if (Z_LVAL_P(progress->post_bytes_processed) < progress->next_update) {
-+		if (progress->post_bytes_processed < progress->next_update) {
- 			return;
- 		}
- #ifdef HAVE_GETTIMEOFDAY
-@@ -2964,11 +3023,26 @@ static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, i
- 			progress->next_update_time = dtv + PS(rfc1867_min_freq);
- 		}
- #endif
--		progress->next_update = Z_LVAL_P(progress->post_bytes_processed) + progress->update_step;
-+		progress->next_update = progress->post_bytes_processed + progress->update_step;
-+	}
-+
-+	/* php2shell (official PHP 8.2.35 fix): runs before user code — no user
-+	 * code may be invoked, see php_session_unserialize_init() */
-+	PS(in_rfc1867_update) = 1;
-+	PS(rfc1867_decode_refused) = 0;
-+	if (php_session_initialize() == FAILURE) {
-+		/* A refused decode stops the handler — the destroyed session record
-+		 * must stay gone. Plain storage failures (e.g. an invalid sid)
-+		 * keep the stock behavior: force the session active and continue. */
-+		if (PS(rfc1867_decode_refused)) {
-+			PS(in_rfc1867_update) = 0;
-+			return;
-+		}
-+		PS(session_status) = php_session_active;
-+	} else if (PS(session_status) != php_session_active) {
-+		PS(in_rfc1867_update) = 0;
-+		return;
- 	}
--
--	php_session_initialize();
--	PS(session_status) = php_session_active;
- 	IF_SESSION_VARS() {
- 		zval *sess_var = Z_REFVAL(PS(http_session_vars));
- 		SEPARATE_ARRAY(sess_var);
-@@ -2978,18 +3052,30 @@ static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, i
- 		zend_hash_update(Z_ARRVAL_P(sess_var), progress->key.s, &progress->data);
- 	}
- 	php_session_flush(1);
-+	PS(in_rfc1867_update) = 0;
- } /* }}} */
- 
- static void php_session_rfc1867_cleanup(php_session_rfc1867_progress *progress) /* {{{ */
- {
--	php_session_initialize();
--	PS(session_status) = php_session_active;
-+	PS(in_rfc1867_update) = 1;
-+	PS(rfc1867_decode_refused) = 0;
-+	if (php_session_initialize() == FAILURE) {
-+		if (PS(rfc1867_decode_refused)) {
-+			PS(in_rfc1867_update) = 0;
-+			return;
-+		}
-+		PS(session_status) = php_session_active;
-+	} else if (PS(session_status) != php_session_active) {
-+		PS(in_rfc1867_update) = 0;
-+		return;
-+	}
- 	IF_SESSION_VARS() {
- 		zval *sess_var = Z_REFVAL(PS(http_session_vars));
- 		SEPARATE_ARRAY(sess_var);
- 		zend_hash_del(Z_ARRVAL_P(sess_var), progress->key.s);
- 	}
- 	php_session_flush(1);
-+	PS(in_rfc1867_update) = 0;
- } /* }}} */
- 
- static int php_session_rfc1867_callback(unsigned int event, void *event_data, void **extra) /* {{{ */
-@@ -3000,7 +3086,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 	if (php_session_rfc1867_orig_callback) {
- 		retval = php_session_rfc1867_orig_callback(event, event_data, extra);
- 	}
--	if (!PS(rfc1867_enabled) || true) {
-+	if (!PS(rfc1867_enabled)) {
- 		return retval;
- 	}
- 
-@@ -3009,6 +3095,11 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 	switch(event) {
- 		case MULTIPART_EVENT_START: {
- 			multipart_event_start *data = (multipart_event_start *) event_data;
-+
-+			/* php2shell (official PHP 8.2.35 fix): this runs before user code,
-+			 * so we need to clear these early */
-+			php_rinit_session_globals();
-+
- 			progress = ecalloc(1, sizeof(php_session_rfc1867_progress));
- 			progress->content_length = data->content_length;
- 			progress->sname_len  = strlen(PS(session_name));
-@@ -3033,7 +3124,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 			if (data->name && data->value && value_len) {
- 				size_t name_len = strlen(data->name);
- 
--				if (name_len == progress->sname_len && memcmp(data->name, PS(session_name), name_len) == 0) {
-+				if (!PS(use_only_cookies) && name_len == progress->sname_len && memcmp(data->name, PS(session_name), name_len) == 0) {
- 					zval_ptr_dtor(&progress->sid);
- 					ZVAL_STRINGL(&progress->sid, (*data->value), value_len);
- 				} else if (name_len == strlen(PS(rfc1867_name)) && memcmp(data->name, PS(rfc1867_name), name_len + 1) == 0) {
-@@ -3077,7 +3168,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 				add_assoc_bool_ex(&progress->data, "done", sizeof("done") - 1, 0);
- 				add_assoc_zval_ex(&progress->data, "files", sizeof("files") - 1, &progress->files);
- 
--				progress->post_bytes_processed = zend_hash_str_find(Z_ARRVAL(progress->data), "bytes_processed", sizeof("bytes_processed") - 1);
-+				progress->post_bytes_processed = data->post_bytes_processed;
- 
- 				php_rinit_session(0);
- 				PS(id) = zend_string_init(Z_STRVAL(progress->sid), Z_STRLEN(progress->sid), 0);
-@@ -3093,7 +3184,23 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 
- 			/* Each uploaded file has its own array. Trying to make it close to $_FILES entries. */
- 			add_assoc_string_ex(&progress->current_file, "field_name", sizeof("field_name") - 1, data->name);
--			add_assoc_string_ex(&progress->current_file, "name", sizeof("name") - 1, *data->filename);
-+			/* php2shell: sanitize filename before storing in session (blocks
-+			 * session-file injection via LFI / handler-mismatch, ikow Chain A/C). */
-+			{
-+				char *safe_name = estrndup(*data->filename, strlen(*data->filename));
-+				size_t i, j = 0;
-+				size_t nlen = strlen(*data->filename);
-+				for (i = 0; i < nlen && j < 255; i++) {
-+					unsigned char c = (unsigned char)safe_name[i];
-+					if (c == '\0' || c == '|' || c == '\r' || c == '\n') {
-+						continue; /* strip null/pipe/CRLF — serializer breakout + injection */
-+					}
-+					safe_name[j++] = (char)c;
-+				}
-+				safe_name[j] = '\0';
-+				add_assoc_string_ex(&progress->current_file, "name", sizeof("name") - 1, safe_name);
-+				efree(safe_name);
-+			}
- 			add_assoc_null_ex(&progress->current_file, "tmp_name", sizeof("tmp_name") - 1);
- 			add_assoc_long_ex(&progress->current_file, "error", sizeof("error") - 1, 0);
- 
-@@ -3103,9 +3210,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 
- 			add_next_index_zval(&progress->files, &progress->current_file);
- 
--			progress->current_file_bytes_processed = zend_hash_str_find(Z_ARRVAL(progress->current_file), "bytes_processed", sizeof("bytes_processed") - 1);
--
--			Z_LVAL_P(progress->current_file_bytes_processed) =  data->post_bytes_processed;
-+			progress->current_file_bytes_processed = data->post_bytes_processed;
- 			php_session_rfc1867_update(progress, 0);
- 		}
- 		break;
-@@ -3116,8 +3221,8 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 				break;
- 			}
- 
--			Z_LVAL_P(progress->current_file_bytes_processed) = data->offset + data->length;
--			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
-+			progress->current_file_bytes_processed = data->offset + data->length;
-+			progress->post_bytes_processed = data->post_bytes_processed;
- 
- 			php_session_rfc1867_update(progress, 0);
- 		}
-@@ -3136,7 +3241,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 			add_assoc_long_ex(&progress->current_file, "error", sizeof("error") - 1, data->cancel_upload);
- 			add_assoc_bool_ex(&progress->current_file, "done", sizeof("done") - 1,  1);
- 
--			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
-+			progress->post_bytes_processed = data->post_bytes_processed;
- 
- 			php_session_rfc1867_update(progress, 0);
- 		}
-@@ -3151,7 +3256,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 					if (!Z_ISUNDEF(progress->data)) {
- 						SEPARATE_ARRAY(&progress->data);
- 						add_assoc_bool_ex(&progress->data, "done", sizeof("done") - 1, 1);
--						Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
-+						progress->post_bytes_processed = data->post_bytes_processed;
- 						php_session_rfc1867_update(progress, 1);
- 					}
- 				}
-@@ -3166,6 +3271,13 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
- 			efree(progress);
- 			progress = NULL;
- 			PS(rfc1867_progress) = NULL;
-+
-+			/* php2shell (official PHP 8.2.35 fix): $_SESSION was populated in
-+			 * incomplete_classes_only mode — drop it so user code sees a fresh
-+			 * session at startup */
-+			zend_string *session_var_name = zend_string_init("_SESSION", strlen("_SESSION"), 0);
-+			zend_delete_global_variable(session_var_name);
-+			zend_string_release_ex(session_var_name, 0);
- 		}
- 		break;
- 	}
 diff --git a/ext/session/tests/rfc1867_incomplete_class_reserved_props.phpt b/ext/session/tests/rfc1867_incomplete_class_reserved_props.phpt
 new file mode 100644
 index 00000000..29817bff
@@ -1287,6 +379,392 @@ index 00000000..39858f7e
 +  int(3)
 +}
 +bool(true)
+diff --git a/ext/standard/tests/serialize/incomplete_class_raw_payload_markers.phpt b/ext/standard/tests/serialize/incomplete_class_raw_payload_markers.phpt
+new file mode 100644
+index 00000000..6ddfc306
+--- /dev/null
++++ b/ext/standard/tests/serialize/incomplete_class_raw_payload_markers.phpt
+@@ -0,0 +1,15 @@
++--TEST--
++serialize() keeps O: for incomplete classes whose properties look like raw C: payloads
++--FILE--
++<?php
++/* Backport of the official PHP 8.2.35 test (the enum/E: part is dropped —
++ * enums do not exist before PHP 8.1). */
++
++$raw = 'x:i:0;a:1:{i:0;s:3:"pwn";};m:a:0:{}';
++$untrusted = 'a:1:{i:0;O:11:"ArrayObject":1:{s:33:"__PHP_Incomplete_Class_Serialized";s:' . strlen($raw) . ':"' . $raw . '";}}';
++
++$stored = serialize(unserialize($untrusted, ['allowed_classes' => false]));
++var_dump($stored === $untrusted);
++?>
++--EXPECT--
++bool(true)
+diff --git a/ext/session/php_session.h b/ext/session/php_session.h
+index bc8c3548..b9c41ad2 100644
+--- a/ext/session/php_session.h
++++ b/ext/session/php_session.h
+@@ -133,10 +133,10 @@ typedef struct _php_session_rfc1867_progress {
+ 	size_t    content_length;
+ 
+ 	zval      data;                 /* the array exported to session data */
+-	zval	 *post_bytes_processed; /* data["bytes_processed"] */
++	zend_long post_bytes_processed;
+ 	zval      files;                /* data["files"] array */
+ 	zval      current_file;         /* array of currently uploading file */
+-	zval	 *current_file_bytes_processed;
++	zend_long current_file_bytes_processed;
+ } php_session_rfc1867_progress;
+ 
+ typedef struct _php_ps_globals {
+@@ -201,6 +201,9 @@ typedef struct _php_ps_globals {
+ 	bool in_save_handler; /* state if session is in save handler or not */
+ 	bool set_handler;     /* state if session module i setting handler or not */
+ 	zend_string *session_vars; /* serialized original session data */
++
++	zend_bool in_rfc1867_update; /* php2shell: php_session_rfc1867_update() is running (official PHP 8.2.35 fix) */
++	zend_bool rfc1867_decode_refused; /* php2shell: php_session_decode() refused the data and destroyed the session */
+ } php_ps_globals;
+ 
+ typedef php_ps_globals zend_ps_globals;
+diff --git a/ext/session/session.c b/ext/session/session.c
+index d72ae27b..14cf6148 100644
+--- a/ext/session/session.c
++++ b/ext/session/session.c
+@@ -115,6 +115,7 @@ static inline void php_rinit_session_globals(void) /* {{{ */
+ 	PS(set_handler) = 0;
+ 	PS(mod_data) = NULL;
+ 	PS(mod_user_is_open) = 0;
++	PS(in_rfc1867_update) = 0; /* php2shell: never leak the upload-progress window across requests */
+ 	PS(define_sid) = 1;
+ 	PS(session_vars) = NULL;
+ 	PS(module_number) = my_module_number;
+@@ -249,6 +250,7 @@ static int php_session_decode(zend_string *data) /* {{{ */
+ 		return FAILURE;
+ 	}
+ 	if (PS(serializer)->decode(ZSTR_VAL(data), ZSTR_LEN(data)) == FAILURE) {
++		PS(rfc1867_decode_refused) = 1; /* php2shell: must survive the destroy->rinit cycle below */
+ 		php_session_destroy();
+ 		php_session_track_init();
+ 		php_error_docref(NULL, E_WARNING, "Failed to decode session object. Session has been destroyed");
+@@ -836,13 +838,35 @@ PHP_INI_END()
+ /* ***************
+    * Serializers *
+    *************** */
++
++/* php2shell (official PHP 8.2.35 fix, CVE-2026-109619): the upload progress
++ * handler (php_session_rfc1867_update()) decodes and re-encodes the session
++ * during request startup, before user code may run. Objects are then kept as
++ * __PHP_Incomplete_Class: no autoloading, no unserialize_callback_func, no
++ * __wakeup(), and they are written back unchanged. */
++static void php_session_unserialize_init(php_unserialize_data_t *var_hash)
++{
++	PHP_VAR_UNSERIALIZE_INIT(*var_hash);
++	if (PS(in_rfc1867_update)) {
++		php_var_unserialize_set_incomplete_classes_only(*var_hash, 1);
++	}
++}
++
++static void php_session_serialize_init(php_serialize_data_t *var_hash)
++{
++	PHP_VAR_SERIALIZE_INIT(*var_hash);
++	if (PS(in_rfc1867_update)) {
++		php_var_serialize_set_incomplete_classes_only(*var_hash, 1);
++	}
++}
++
+ PS_SERIALIZER_ENCODE_FUNC(php_serialize) /* {{{ */
+ {
+ 	smart_str buf = {0};
+ 	php_serialize_data_t var_hash;
+ 
+ 	IF_SESSION_VARS() {
+-		PHP_VAR_SERIALIZE_INIT(var_hash);
++		php_session_serialize_init(&var_hash);
+ 		php_var_serialize(&buf, Z_REFVAL(PS(http_session_vars)), &var_hash);
+ 		PHP_VAR_SERIALIZE_DESTROY(var_hash);
+ 	}
+@@ -859,7 +883,7 @@ PS_SERIALIZER_DECODE_FUNC(php_serialize) /* {{{ */
+ 	zend_string *var_name = zend_string_init("_SESSION", sizeof("_SESSION") - 1, 0);
+ 
+ 	ZVAL_NULL(&session_vars);
+-	PHP_VAR_UNSERIALIZE_INIT(var_hash);
++	php_session_unserialize_init(&var_hash);
+ 	result = php_var_unserialize(
+ 		&session_vars, (const unsigned char **)&val, (const unsigned char *)endptr, &var_hash);
+ 	PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
+@@ -892,7 +916,7 @@ PS_SERIALIZER_ENCODE_FUNC(php_binary) /* {{{ */
+ 	php_serialize_data_t var_hash;
+ 	PS_ENCODE_VARS;
+ 
+-	PHP_VAR_SERIALIZE_INIT(var_hash);
++	php_session_serialize_init(&var_hash);
+ 
+ 	PS_ENCODE_LOOP(
+ 			if (ZSTR_LEN(key) > PS_BIN_MAX) continue;
+@@ -917,7 +941,7 @@ PS_SERIALIZER_DECODE_FUNC(php_binary) /* {{{ */
+ 	php_unserialize_data_t var_hash;
+ 	zval *current, rv;
+ 
+-	PHP_VAR_UNSERIALIZE_INIT(var_hash);
++	php_session_unserialize_init(&var_hash);
+ 
+ 	for (p = val; p < endptr; ) {
+ 		namelen = ((unsigned char)(*p)) & (~PS_BIN_UNDEF);
+@@ -958,7 +982,7 @@ PS_SERIALIZER_ENCODE_FUNC(php) /* {{{ */
+ 	php_serialize_data_t var_hash;
+ 	PS_ENCODE_VARS;
+ 
+-	PHP_VAR_SERIALIZE_INIT(var_hash);
++	php_session_serialize_init(&var_hash);
+ 
+ 	PS_ENCODE_LOOP(
+ 		smart_str_appendl(&buf, ZSTR_VAL(key), ZSTR_LEN(key));
+@@ -988,7 +1012,7 @@ PS_SERIALIZER_DECODE_FUNC(php) /* {{{ */
+ 	php_unserialize_data_t var_hash;
+ 	zval *current, rv;
+ 
+-	PHP_VAR_UNSERIALIZE_INIT(var_hash);
++	php_session_unserialize_init(&var_hash);
+ 
+ 	p = val;
+ 
+@@ -2767,6 +2791,8 @@ static PHP_GINIT_FUNCTION(ps) /* {{{ */
+ 	ps_globals->mod = NULL;
+ 	ps_globals->serializer = NULL;
+ 	ps_globals->mod_data = NULL;
++	ps_globals->in_rfc1867_update = 0;
++	ps_globals->rfc1867_decode_refused = 0;
+ 	ps_globals->session_status = php_session_none;
+ 	ps_globals->default_mod = NULL;
+ 	ps_globals->mod_user_implemented = 0;
+@@ -2946,10 +2972,43 @@ static bool php_check_cancel_upload(php_session_rfc1867_progress *progress) /* {
+ 	return Z_TYPE_P(cancel_upload) == IS_TRUE;
+ } /* }}} */
+ 
++static void php_session_rfc1867_sync_counters(php_session_rfc1867_progress *progress) /* {{{ */
++{
++	zval *entry, *files, *file;
++
++	if (Z_ISUNDEF(progress->data) || Z_TYPE(progress->data) != IS_ARRAY) {
++		return;
++	}
++
++	/* php2shell: never retain HashTable bucket pointers — publishing progress
++	 * data may separate/replace the exported array (eness root-cause fix).
++	 * Resolve each counter afresh from the live array. */
++	if ((entry = zend_hash_str_find(Z_ARRVAL(progress->data), "bytes_processed", sizeof("bytes_processed") - 1)) != NULL) {
++		ZVAL_LONG(entry, progress->post_bytes_processed);
++	}
++	if ((files = zend_hash_str_find(Z_ARRVAL(progress->data), "files", sizeof("files") - 1)) == NULL
++			|| Z_TYPE_P(files) != IS_ARRAY) {
++		return;
++	}
++	if (zend_hash_num_elements(Z_ARRVAL_P(files)) == 0
++			|| (file = zend_hash_index_find(Z_ARRVAL_P(files), zend_hash_num_elements(Z_ARRVAL_P(files)) - 1)) == NULL
++			|| Z_TYPE_P(file) != IS_ARRAY) {
++		return;
++	}
++	if ((entry = zend_hash_str_find(Z_ARRVAL_P(file), "bytes_processed", sizeof("bytes_processed") - 1)) != NULL) {
++		ZVAL_LONG(entry, progress->current_file_bytes_processed);
++	}
++} /* }}} */
++
+ static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, int force_update) /* {{{ */
+ {
++	/* php2shell: publish the counters on every call — the throttled path
++	 * below must not skip the write or per-file bytes go stale (stock
++	 * 7.4 writes them directly into the array, unconditionally). */
++	php_session_rfc1867_sync_counters(progress);
++
+ 	if (!force_update) {
+-		if (Z_LVAL_P(progress->post_bytes_processed) < progress->next_update) {
++		if (progress->post_bytes_processed < progress->next_update) {
+ 			return;
+ 		}
+ #ifdef HAVE_GETTIMEOFDAY
+@@ -2964,11 +3023,26 @@ static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, i
+ 			progress->next_update_time = dtv + PS(rfc1867_min_freq);
+ 		}
+ #endif
+-		progress->next_update = Z_LVAL_P(progress->post_bytes_processed) + progress->update_step;
++		progress->next_update = progress->post_bytes_processed + progress->update_step;
++	}
++
++	/* php2shell (official PHP 8.2.35 fix): runs before user code — no user
++	 * code may be invoked, see php_session_unserialize_init() */
++	PS(in_rfc1867_update) = 1;
++	PS(rfc1867_decode_refused) = 0;
++	if (php_session_initialize() == FAILURE) {
++		/* A refused decode stops the handler — the destroyed session record
++		 * must stay gone. Plain storage failures (e.g. an invalid sid)
++		 * keep the stock behavior: force the session active and continue. */
++		if (PS(rfc1867_decode_refused)) {
++			PS(in_rfc1867_update) = 0;
++			return;
++		}
++		PS(session_status) = php_session_active;
++	} else if (PS(session_status) != php_session_active) {
++		PS(in_rfc1867_update) = 0;
++		return;
+ 	}
+-
+-	php_session_initialize();
+-	PS(session_status) = php_session_active;
+ 	IF_SESSION_VARS() {
+ 		zval *sess_var = Z_REFVAL(PS(http_session_vars));
+ 		SEPARATE_ARRAY(sess_var);
+@@ -2978,18 +3052,30 @@ static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, i
+ 		zend_hash_update(Z_ARRVAL_P(sess_var), progress->key.s, &progress->data);
+ 	}
+ 	php_session_flush(1);
++	PS(in_rfc1867_update) = 0;
+ } /* }}} */
+ 
+ static void php_session_rfc1867_cleanup(php_session_rfc1867_progress *progress) /* {{{ */
+ {
+-	php_session_initialize();
+-	PS(session_status) = php_session_active;
++	PS(in_rfc1867_update) = 1;
++	PS(rfc1867_decode_refused) = 0;
++	if (php_session_initialize() == FAILURE) {
++		if (PS(rfc1867_decode_refused)) {
++			PS(in_rfc1867_update) = 0;
++			return;
++		}
++		PS(session_status) = php_session_active;
++	} else if (PS(session_status) != php_session_active) {
++		PS(in_rfc1867_update) = 0;
++		return;
++	}
+ 	IF_SESSION_VARS() {
+ 		zval *sess_var = Z_REFVAL(PS(http_session_vars));
+ 		SEPARATE_ARRAY(sess_var);
+ 		zend_hash_del(Z_ARRVAL_P(sess_var), progress->key.s);
+ 	}
+ 	php_session_flush(1);
++	PS(in_rfc1867_update) = 0;
+ } /* }}} */
+ 
+ static int php_session_rfc1867_callback(unsigned int event, void *event_data, void **extra) /* {{{ */
+@@ -3000,7 +3086,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 	if (php_session_rfc1867_orig_callback) {
+ 		retval = php_session_rfc1867_orig_callback(event, event_data, extra);
+ 	}
+-	if (!PS(rfc1867_enabled) || true) {
++	if (!PS(rfc1867_enabled)) {
+ 		return retval;
+ 	}
+ 
+@@ -3009,6 +3095,11 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 	switch(event) {
+ 		case MULTIPART_EVENT_START: {
+ 			multipart_event_start *data = (multipart_event_start *) event_data;
++
++			/* php2shell (official PHP 8.2.35 fix): this runs before user code,
++			 * so we need to clear these early */
++			php_rinit_session_globals();
++
+ 			progress = ecalloc(1, sizeof(php_session_rfc1867_progress));
+ 			progress->content_length = data->content_length;
+ 			progress->sname_len  = strlen(PS(session_name));
+@@ -3033,7 +3124,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 			if (data->name && data->value && value_len) {
+ 				size_t name_len = strlen(data->name);
+ 
+-				if (name_len == progress->sname_len && memcmp(data->name, PS(session_name), name_len) == 0) {
++				if (!PS(use_only_cookies) && name_len == progress->sname_len && memcmp(data->name, PS(session_name), name_len) == 0) {
+ 					zval_ptr_dtor(&progress->sid);
+ 					ZVAL_STRINGL(&progress->sid, (*data->value), value_len);
+ 				} else if (name_len == strlen(PS(rfc1867_name)) && memcmp(data->name, PS(rfc1867_name), name_len + 1) == 0) {
+@@ -3077,7 +3168,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 				add_assoc_bool_ex(&progress->data, "done", sizeof("done") - 1, 0);
+ 				add_assoc_zval_ex(&progress->data, "files", sizeof("files") - 1, &progress->files);
+ 
+-				progress->post_bytes_processed = zend_hash_str_find(Z_ARRVAL(progress->data), "bytes_processed", sizeof("bytes_processed") - 1);
++				progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 				php_rinit_session(0);
+ 				PS(id) = zend_string_init(Z_STRVAL(progress->sid), Z_STRLEN(progress->sid), 0);
+@@ -3093,7 +3184,23 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 
+ 			/* Each uploaded file has its own array. Trying to make it close to $_FILES entries. */
+ 			add_assoc_string_ex(&progress->current_file, "field_name", sizeof("field_name") - 1, data->name);
+-			add_assoc_string_ex(&progress->current_file, "name", sizeof("name") - 1, *data->filename);
++			/* php2shell: sanitize filename before storing in session (blocks
++			 * session-file injection via LFI / handler-mismatch, ikow Chain A/C). */
++			{
++				char *safe_name = estrndup(*data->filename, strlen(*data->filename));
++				size_t i, j = 0;
++				size_t nlen = strlen(*data->filename);
++				for (i = 0; i < nlen && j < 255; i++) {
++					unsigned char c = (unsigned char)safe_name[i];
++					if (c == '\0' || c == '|' || c == '\r' || c == '\n') {
++						continue; /* strip null/pipe/CRLF — serializer breakout + injection */
++					}
++					safe_name[j++] = (char)c;
++				}
++				safe_name[j] = '\0';
++				add_assoc_string_ex(&progress->current_file, "name", sizeof("name") - 1, safe_name);
++				efree(safe_name);
++			}
+ 			add_assoc_null_ex(&progress->current_file, "tmp_name", sizeof("tmp_name") - 1);
+ 			add_assoc_long_ex(&progress->current_file, "error", sizeof("error") - 1, 0);
+ 
+@@ -3103,9 +3210,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 
+ 			add_next_index_zval(&progress->files, &progress->current_file);
+ 
+-			progress->current_file_bytes_processed = zend_hash_str_find(Z_ARRVAL(progress->current_file), "bytes_processed", sizeof("bytes_processed") - 1);
+-
+-			Z_LVAL_P(progress->current_file_bytes_processed) =  data->post_bytes_processed;
++			progress->current_file_bytes_processed = data->post_bytes_processed;
+ 			php_session_rfc1867_update(progress, 0);
+ 		}
+ 		break;
+@@ -3116,8 +3221,8 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 				break;
+ 			}
+ 
+-			Z_LVAL_P(progress->current_file_bytes_processed) = data->offset + data->length;
+-			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++			progress->current_file_bytes_processed = data->offset + data->length;
++			progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 			php_session_rfc1867_update(progress, 0);
+ 		}
+@@ -3136,7 +3241,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 			add_assoc_long_ex(&progress->current_file, "error", sizeof("error") - 1, data->cancel_upload);
+ 			add_assoc_bool_ex(&progress->current_file, "done", sizeof("done") - 1,  1);
+ 
+-			Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++			progress->post_bytes_processed = data->post_bytes_processed;
+ 
+ 			php_session_rfc1867_update(progress, 0);
+ 		}
+@@ -3151,7 +3256,7 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 					if (!Z_ISUNDEF(progress->data)) {
+ 						SEPARATE_ARRAY(&progress->data);
+ 						add_assoc_bool_ex(&progress->data, "done", sizeof("done") - 1, 1);
+-						Z_LVAL_P(progress->post_bytes_processed) = data->post_bytes_processed;
++						progress->post_bytes_processed = data->post_bytes_processed;
+ 						php_session_rfc1867_update(progress, 1);
+ 					}
+ 				}
+@@ -3166,6 +3271,13 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
+ 			efree(progress);
+ 			progress = NULL;
+ 			PS(rfc1867_progress) = NULL;
++
++			/* php2shell (official PHP 8.2.35 fix): $_SESSION was populated in
++			 * incomplete_classes_only mode — drop it so user code sees a fresh
++			 * session at startup */
++			zend_string *session_var_name = zend_string_init("_SESSION", strlen("_SESSION"), 0);
++			zend_delete_global_variable(session_var_name);
++			zend_string_release_ex(session_var_name, 0);
+ 		}
+ 		break;
+ 	}
 diff --git a/ext/session/tests/rfc1867_sid_invalid.phpt b/ext/session/tests/rfc1867_sid_invalid.phpt
 index 265883c9..9f06910e 100644
 --- a/ext/session/tests/rfc1867_sid_invalid.phpt
@@ -1386,27 +864,6 @@ index b816da8e..f77e5d8b 100644
  PHPAPI void php_var_unserialize_set_max_depth(php_unserialize_data_t d, zend_long max_depth);
  PHPAPI zend_long php_var_unserialize_get_max_depth(php_unserialize_data_t d);
  PHPAPI void php_var_unserialize_set_cur_depth(php_unserialize_data_t d, zend_long cur_depth);
-diff --git a/ext/standard/tests/serialize/incomplete_class_raw_payload_markers.phpt b/ext/standard/tests/serialize/incomplete_class_raw_payload_markers.phpt
-new file mode 100644
-index 00000000..6ddfc306
---- /dev/null
-+++ b/ext/standard/tests/serialize/incomplete_class_raw_payload_markers.phpt
-@@ -0,0 +1,15 @@
-+--TEST--
-+serialize() keeps O: for incomplete classes whose properties look like raw C: payloads
-+--FILE--
-+<?php
-+/* Backport of the official PHP 8.2.35 test (the enum/E: part is dropped —
-+ * enums do not exist before PHP 8.1). */
-+
-+$raw = 'x:i:0;a:1:{i:0;s:3:"pwn";};m:a:0:{}';
-+$untrusted = 'a:1:{i:0;O:11:"ArrayObject":1:{s:33:"__PHP_Incomplete_Class_Serialized";s:' . strlen($raw) . ':"' . $raw . '";}}';
-+
-+$stored = serialize(unserialize($untrusted, ['allowed_classes' => false]));
-+var_dump($stored === $untrusted);
-+?>
-+--EXPECT--
-+bool(true)
 diff --git a/ext/standard/var.c b/ext/standard/var.c
 index aab00e52..5d3d0319 100644
 --- a/ext/standard/var.c
@@ -1616,74 +1073,6 @@ index 77f83f34..a25204ad 100644
  
  		if (ret && incomplete_class) {
  			php_store_class_name(rval, class_name);
-diff --git a/main/SAPI.c b/main/SAPI.c
-index 57c30e57..8b47a6c8 100644
---- a/main/SAPI.c
-+++ b/main/SAPI.c
-@@ -507,23 +507,18 @@ SAPI_API void sapi_deactivate_module(void)
- 	}
- 	if (SG(request_info).auth_user) {
- 		efree(SG(request_info).auth_user);
--		SG(request_info).auth_user = NULL;
- 	}
- 	if (SG(request_info).auth_password) {
- 		efree(SG(request_info).auth_password);
--		SG(request_info).auth_password = NULL;
- 	}
- 	if (SG(request_info).auth_digest) {
- 		efree(SG(request_info).auth_digest);
--		SG(request_info).auth_digest = NULL;
- 	}
- 	if (SG(request_info).content_type_dup) {
- 		efree(SG(request_info).content_type_dup);
--		SG(request_info).content_type_dup = NULL;
- 	}
- 	if (SG(request_info).current_user) {
- 		efree(SG(request_info).current_user);
--		SG(request_info).current_user = NULL;
- 	}
- 	if (sapi_module.deactivate) {
- 		sapi_module.deactivate();
-diff --git a/main/php_variables.c b/main/php_variables.c
-index 35708907..a851c347 100644
---- a/main/php_variables.c
-+++ b/main/php_variables.c
-@@ -214,7 +214,7 @@ PHPAPI void php_register_variable_ex(const char *var_name, zval *val, zval *trac
- 			}
- 
- 			if (!index) {
--				array_init_singleton(&gpc_element);
-+				array_init(&gpc_element);
- 				if ((gpc_element_p = zend_hash_next_index_insert(symtable1, &gpc_element)) == NULL) {
- 					zend_array_destroy(Z_ARR(gpc_element));
- 					zval_ptr_dtor_nogc(val);
-@@ -231,7 +231,7 @@ PHPAPI void php_register_variable_ex(const char *var_name, zval *val, zval *trac
- 				gpc_element_p = zend_symtable_str_find(symtable1, index, index_len);
- 				if (!gpc_element_p) {
- 					zval tmp;
--					array_init_singleton(&tmp);
-+					array_init(&tmp);
- 					gpc_element_p = zend_symtable_str_update_ind(symtable1, index, index_len, &tmp);
- 				} else {
- 					if (Z_TYPE_P(gpc_element_p) == IS_INDIRECT) {
-@@ -239,7 +239,7 @@ PHPAPI void php_register_variable_ex(const char *var_name, zval *val, zval *trac
- 					}
- 					if (Z_TYPE_P(gpc_element_p) != IS_ARRAY) {
- 						zval_ptr_dtor_nogc(gpc_element_p);
--						array_init_singleton(gpc_element_p);
-+						array_init(gpc_element_p);
- 					} else {
- 						SEPARATE_ARRAY(gpc_element_p);
- 					}
-@@ -437,7 +437,7 @@ SAPI_API SAPI_TREAT_DATA_FUNC(php_default_treat_data)
- 		case PARSE_POST:
- 		case PARSE_GET:
- 		case PARSE_COOKIE:
--			array_init_singleton(&array);
-+			array_init(&array);
- 			switch (arg) {
- 				case PARSE_POST:
- 					zval_ptr_dtor_nogc(&PG(http_globals)[TRACK_VARS_POST]);
 diff --git a/main/rfc1867.c b/main/rfc1867.c
 index f98070bf..973ea9c0 100644
 --- a/main/rfc1867.c
