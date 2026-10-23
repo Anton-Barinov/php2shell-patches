@@ -1644,29 +1644,6 @@ index 57c30e57..8b47a6c8 100644
  	}
  	if (sapi_module.deactivate) {
  		sapi_module.deactivate();
-diff --git a/main/main.c b/main/main.c
-index b9994ccf..562dcdca 100644
---- a/main/main.c
-+++ b/main/main.c
-@@ -1850,8 +1850,6 @@ void php_request_shutdown(void *dummy)
- 
- 		for (i=0; i<NUM_TRACK_VARS; i++) {
- 			zval_ptr_dtor(&PG(http_globals)[i]);
--			/* May be accessed before php_request_startup() */
--			ZVAL_UNDEF(&PG(http_globals)[i]);
- 		}
- 	} zend_end_try();
- 
-@@ -1908,9 +1906,6 @@ void php_request_shutdown(void *dummy)
- #ifdef HAVE_DTRACE
- 	DTRACE_REQUEST_SHUTDOWN(SAFE_FILENAME(SG(request_info).path_translated), SAFE_FILENAME(SG(request_info).request_uri), (char *)SAFE_FILENAME(SG(request_info).request_method));
- #endif /* HAVE_DTRACE */
--
--	/* May be accessed before php_request_startup() */
--	PG(modules_activated) = 0;
- }
- /* }}} */
- 
 diff --git a/main/php_variables.c b/main/php_variables.c
 index 35708907..a851c347 100644
 --- a/main/php_variables.c
