@@ -675,6 +675,29 @@ symbol): zero entries after the final swap window.
 
 ---
 
+## Verifying a deployed fix (on live FPM / Apache)
+
+`verify/` contains a small, controlled, **non-destructive** validator (not an
+exploit) to confirm a build is patched on the real SAPI after deployment: a
+token-gated endpoint (`cvecheck.php`) plus a driver that reports PASS/FAIL
+(`run-cvecheck.sh` for Linux/macOS, `run-cvecheck.ps1` for Windows PowerShell).
+
+Supports **PHP 5.4 through 8.5** and handles both **minimal** and **enhanced**
+patch flavors.
+
+### Quick start:
+1. Set `$CVECHECK_TOKEN = 'your_secret';` in `verify/cvecheck.php`.
+2. Copy `verify/cvecheck.php` to your web root (`/var/www/html/cvecheck.php`).
+3. Run the driver:
+   ```bash
+   ./verify/run-cvecheck.sh https://example.com/cvecheck.php your_secret
+   ```
+4. **Delete `cvecheck.php` when finished.**
+
+See [`verify/README.md`](verify/README.md) for full details.
+
+---
+
 ## Credits & sources
 
 - PHP security advisory: <https://www.php.net> (21 Oct 2026)
@@ -689,6 +712,7 @@ symbol): zero entries after the final swap window.
 - Session-fixation fix: upstream [PR #22113](https://github.com/php/php-src/pull/22113).
 - Attack-chain analysis (filename injection, serializer leak):
   [ikow/php2shell-poc](https://github.com/ikow/php2shell-poc).
+- Mitigation verifier design inspired by: [vperetti/php-cve-2026-109618-109619-backports](https://github.com/vperetti/php-cve-2026-109618-109619-backports).
 - Community backports are **not affiliated with or endorsed by the PHP Group.**
 
 ## Licence

@@ -7,7 +7,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 rc=0
 for t in cfg-backup-test.sh ioncube-mirror-test.sh smoke-test.sh \
-         retro-test.sh restore-test.sh; do
+         retro-test.sh restore-test.sh cvecheck-test.sh; do
   echo "===== $t ====="
   if ! "$HERE/$t"; then rc=1; fi
   echo
