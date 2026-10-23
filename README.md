@@ -57,7 +57,7 @@ stays enabled.
 | 7.3.x | ⚠️ backport | `php-7.3-minimal.patch` **or** `php-7.3-enhanced-universal.patch` (vanilla php.net) **or** `php-7.3-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.2.x | ⚠️ backport | `php-7.2-minimal.patch` **or** `php-7.2-enhanced-universal.patch` (vanilla php.net) **or** `php-7.2-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.1.x | ⚠️ backport | `php-7.1-minimal.patch` **or** `php-7.1-enhanced-universal.patch` (vanilla php.net, contributed by @lovelock) **or** `php-7.1-enhanced-remicollet.patch` (for Remi's tree) |
-| 7.0.x | ⚠️ backport | `php-7.0-enhanced-universal.patch` (vanilla php.net tarball) |
+| 7.0.x | ⚠️ backport | `php-7.0-enhanced-universal.patch` (vanilla php.net tarball) **or** `php-7.0-enhanced-remicollet.patch` (for Remi's tree) |
 | 5.6.x | ❌ none | **migrate**. Community backports: `php-5.6-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.6-enhanced-remicollet.patch` (for [remicollet/php-src-security](https://github.com/remicollet/php-src-security) backports tree) or `php-5.6-community-backport.patch` (minimal). Verified on real builds. |
 | 5.5.x | ❌ none | **migrate**. Community backports: `php-5.5-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.5-community-backport.patch` (minimal). Compiled & verified on real Linux builds. |
 | 5.4.x | ❌ none | **migrate**. Community backports: `php-5.4-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.4-community-backport.patch` (minimal). Compiled & verified on real Linux builds. |
@@ -377,6 +377,7 @@ patches/
   php-7.1-enhanced-universal.patch   # community enhanced for 7.1 (vanilla php.net tarball)
   php-7.1-enhanced-remicollet.patch  # community enhanced for 7.1: adapted for remicollet tree
   php-7.0-enhanced-universal.patch   # community enhanced for 7.0 (vanilla php.net tarball)
+  php-7.0-enhanced-remicollet.patch  # community enhanced for 7.0: adapted for remicollet tree
   php-5.6-enhanced-universal.patch   # community enhanced for 5.6: root-cause UAF fix (vanilla php.net tarball)
   php-5.6-enhanced-remicollet.patch  # community enhanced for 5.6: adapted for remicollet/php-src-security tree
   php-5.6-community-backport.patch   # community minimal for 5.6 (force-disable) — TEST FIRST
