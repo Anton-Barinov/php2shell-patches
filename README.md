@@ -713,6 +713,7 @@ See [`verify/README.md`](verify/README.md) for full details.
 - Attack-chain analysis (filename injection, serializer leak):
   [ikow/php2shell-poc](https://github.com/ikow/php2shell-poc).
 - Mitigation verifier design inspired by: [vperetti/php-cve-2026-109618-109619-backports](https://github.com/vperetti/php-cve-2026-109618-109619-backports).
+- aaPanel / BT Panel deployment reference & RAM-safe build concurrency: [Qsnh/php2shell-fixed](https://github.com/Qsnh/php2shell-fixed).
 - Community backports are **not affiliated with or endorsed by the PHP Group.**
 
 ## Licence

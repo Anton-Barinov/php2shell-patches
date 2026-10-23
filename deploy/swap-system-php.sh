@@ -158,7 +158,16 @@ fi
 # static mysqlnd/pcre/libxml symbols stay exported for packaged .so files
 sed -i 's/-fvisibility=hidden//g' Makefile
 
-make -j"$(nproc)"
+JOBS="$(nproc 2>/dev/null || echo 2)"
+if [ -f /proc/meminfo ]; then
+  mem_kb=$(awk '/MemAvailable/{print $2}' /proc/meminfo 2>/dev/null || awk '/MemFree/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+  if [ "$mem_kb" -gt 0 ]; then
+    ram_jobs=$(( mem_kb / 1048576 ))
+    [ "$ram_jobs" -lt 1 ] && ram_jobs=1
+    [ "$ram_jobs" -lt "$JOBS" ] && JOBS="$ram_jobs"
+  fi
+fi
+make -j"$JOBS"
 
 # --- sanity check BEFORE touching the system --------------------------------
 # Every module of the installed build must be either (a) compiled into the

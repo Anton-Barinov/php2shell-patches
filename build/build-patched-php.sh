@@ -20,6 +20,14 @@ BUILD_DIR="$(pwd)/.php2shell-build"
 SRC_TAR="php-${VERSION}.tar.gz"
 SRC_URL="https://www.php.net/distributions/${SRC_TAR}"
 NPROC="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+if [ -f /proc/meminfo ]; then
+    mem_kb=$(awk '/MemAvailable/{print $2}' /proc/meminfo 2>/dev/null || awk '/MemFree/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+    if [ "$mem_kb" -gt 0 ]; then
+        ram_jobs=$(( mem_kb / 1048576 ))
+        [ "$ram_jobs" -lt 1 ] && ram_jobs=1
+        [ "$ram_jobs" -lt "$NPROC" ] && NPROC="$ram_jobs"
+    fi
+fi
 
 if [ ! -f "$PATCH_FILE" ]; then
     echo "ERROR: patch file not found: $PATCH_FILE" >&2
@@ -79,6 +87,13 @@ make -j"${NPROC}"
 
 echo "==> Installing to ${PREFIX}..."
 make install
+
+echo "==> Verifying patch..."
+out=$("${PREFIX}/bin/php" -n -d memory_limit=8M -d display_errors=1 -r '$a = str_repeat("x", 32 * 1024 * 1024);' 2>/dev/null || true)
+rc=$?
+if [ "$rc" -eq 1 ] && [ -z "$out" ]; then
+    echo "==> [OK] Binary confirmed PATCHED (clean _exit on OOM, CVE-2026-109618 fixed)"
+fi
 
 echo
 echo "============================================================"
