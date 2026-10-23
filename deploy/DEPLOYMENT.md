@@ -236,8 +236,7 @@ These are not PHP-specific but they bit us during the same rollout:
   aborts the swap while the old fpm is still serving. The block is
   unit-tested by `tests/smoke-test.sh` (6 scenarios: healthy, `fpm -t`
   failure, `php-cgi -v` failure, P10 socket regression, missing loader,
-  no loader configured).
-* **Rollback procedure — one command per version**:
+  no loader configured).* **Rollback procedure — one command per version**:
 
   ```bash
   ./deploy/restore-system-php.sh 7.3           # preview first: --dry-run
@@ -252,6 +251,10 @@ These are not PHP-specific but they bit us during the same rollout:
   no-ops for the distro build), then `php-fpm -t` → restart → `is-active`.
   If `fpm -t` fails it still attempts a best-effort start so the version is
   not left down, and then reports the failure.
+  The whole script runs under `tests/restore-test.sh` (8 scenarios:
+  oldest-`bak` selection, no-backup refusal before touching anything,
+  `--dry-run` purity, missing fpm backup, service not running, full-version
+  argument normalization, inactive-after-restore, `fpm -t` failure).
   Manual fallback (what we used before the script existed):
   1. restore the earliest `*.bak-*` for `php`, `php-cgi`, `php-fpm`
      (stop fpm units first!);

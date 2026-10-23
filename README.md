@@ -378,6 +378,10 @@ tests/
                                       #  mirror block of deploy/swap-system-php.sh
   smoke-test.sh                      # 6-scenario unit test for the pre-restart
                                       #  smoke block of deploy/swap-system-php.sh
+  retro-test.sh                      # 6-scenario unit test for retro-swapbak.sh
+  restore-test.sh                    # 8-scenario unit test for restore-system-php.sh
+                                      #  (sandboxed end-to-end run of the real script)
+  run-all.sh                         # one-command gate: runs every harness above
 ```
 
 ---
@@ -604,7 +608,7 @@ hosts that cannot jump straight to PHP 8.2+.
 
 ## Production validation (fleet run, 2026-10-22)
 
-All **28 installed PHP versions** (9 + 9 + 10 across three live servers:
+All **28 installed PHP versions** (9 + 9 + 10 across three live test servers:
 `host-a`, `host-b`, `host-c`) were validated in place after the final
 swap: the bundled phpt set against the installed `phpX.Y`/`php-cgiX.Y`
 binaries, and the `tests/feedpost/` harness against each version.

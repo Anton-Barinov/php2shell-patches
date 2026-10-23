@@ -193,3 +193,13 @@ jobs:
           ./sapi/cli/php -v
           ./sapi/cli/php -m | grep session
           ./sapi/cli/php -r "echo 'Tested PHP ' . PHP_VERSION . ' CLI successfully!' . PHP_EOL;"
+
+  deploy-tooling-tests:
+    name: "Unit tests: deploy tooling"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Run deploy-tooling harnesses
+        run: tests/run-all.sh
