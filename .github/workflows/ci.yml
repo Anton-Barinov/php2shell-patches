@@ -15,6 +15,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: "PHP 5.4.45 Minimal"
+            version: "5.4.45"
+            patch: "patches/php-5.4-community-backport.patch"
+          - name: "PHP 5.4.45 Enhanced"
+            version: "5.4.45"
+            patch: "patches/php-5.4-enhanced-universal.patch"
+          - name: "PHP 5.5.38 Minimal"
+            version: "5.5.38"
+            patch: "patches/php-5.5-community-backport.patch"
+          - name: "PHP 5.5.38 Enhanced"
+            version: "5.5.38"
+            patch: "patches/php-5.5-enhanced-universal.patch"
           - name: "PHP 5.6.40 Minimal"
             version: "5.6.40"
             patch: "patches/php-5.6-community-backport.patch"

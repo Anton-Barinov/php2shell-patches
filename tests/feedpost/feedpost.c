@@ -55,7 +55,9 @@ PHP_FUNCTION(feed_multipart)
 #endif
 	sapi_request_info old_ri;
 	int64_t old_rpb;
+#if PHP_VERSION_ID >= 50600
 	unsigned char old_post_read;
+#endif
 
 #if PHP_VERSION_ID >= 70000
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ss", &data, &data_len, &ct, &ct_len) == FAILURE) {
@@ -68,7 +70,9 @@ PHP_FUNCTION(feed_multipart)
 	old_read_post = sapi_module.read_post;
 	old_ri = SG(request_info);
 	old_rpb = SG(read_post_bytes);
+#if PHP_VERSION_ID >= 50600
 	old_post_read = SG(post_read);
+#endif
 
 	g_feed_data = data;
 	g_feed_len = data_len;
@@ -78,7 +82,9 @@ PHP_FUNCTION(feed_multipart)
 	SG(request_info).content_length = 0;
 	SG(request_info).request_method = "POST";
 	SG(read_post_bytes) = 0;
+#if PHP_VERSION_ID >= 50600
 	SG(post_read) = 0;
+#endif
 
 #if PHP_VERSION_ID >= 70000
 	array_init(&arr);
@@ -94,7 +100,9 @@ PHP_FUNCTION(feed_multipart)
 	sapi_module.read_post = old_read_post;
 	SG(request_info) = old_ri;
 	SG(read_post_bytes) = old_rpb;
+#if PHP_VERSION_ID >= 50600
 	SG(post_read) = old_post_read;
+#endif
 	g_feed_data = NULL;
 	g_feed_len = 0;
 	g_feed_pos = 0;
@@ -128,7 +136,9 @@ PHP_FUNCTION(feed_multipart)
 	sapi_module.read_post = old_read_post;
 	SG(request_info) = old_ri;
 	SG(read_post_bytes) = old_rpb;
+#if PHP_VERSION_ID >= 50600
 	SG(post_read) = old_post_read;
+#endif
 	g_feed_data = NULL;
 	g_feed_len = 0;
 	g_feed_pos = 0;

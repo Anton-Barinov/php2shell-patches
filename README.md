@@ -1,11 +1,11 @@
-# php2shell patches — CVE-2026-109618 / CVE-2026-109619 for old PHP (5.6–8.1) & OpenCart / HestiaCP
+# php2shell patches — CVE-2026-109618 / CVE-2026-109619 for old PHP (5.4–8.1) & OpenCart / HestiaCP
 
 [![CI](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml/badge.svg)](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml)
 
 Emergency backports and hardening for **CVE-2026-109618** and **CVE-2026-109619**
 ("php2shell") — two critical unauthenticated RCE vulnerabilities in PHP,
 CVSS v4.0 **9.2**. Fixed upstream 21 Oct 2026 (PHP 8.5.12 / 8.4.27 / 8.3.36 /
-8.2.35). **PHP 5.6, 7.x, 8.0, 8.1 are EOL and get no official fix** — this
+8.2.35). **PHP 5.4, 5.5, 5.6, 7.x, 8.0, 8.1 are EOL and get no official fix** — this
 repo packages EOL backports (official + community) plus emergency hardening
 for legacy stacks: **OpenCart, WordPress, Drupal, Joomla, Magento**, any
 HestiaCP / VestaCP / cPanel host still running old PHP.
@@ -59,6 +59,8 @@ stays enabled.
 | 7.1.x | ⚠️ backport | `php-7.1-minimal.patch` **or** `php-7.1-enhanced-universal.patch` (vanilla php.net, contributed by @lovelock) **or** `php-7.1-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.0.x | ⚠️ backport | `php-7.0-enhanced-universal.patch` (vanilla php.net tarball) |
 | 5.6.x | ❌ none | **migrate**. Community backports: `php-5.6-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.6-enhanced-remicollet.patch` (for [remicollet/php-src-security](https://github.com/remicollet/php-src-security) backports tree) or `php-5.6-community-backport.patch` (minimal). **Test first.** |
+| 5.5.x | ❌ none | **migrate**. Community backports: `php-5.5-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.5-community-backport.patch` (minimal). **Test first.** |
+| 5.4.x | ❌ none | **migrate**. Community backports: `php-5.4-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.4-community-backport.patch` (minimal). **Test first.** |
 
 ---
 
@@ -142,7 +144,7 @@ systemctl restart 'php8.*-fpm'
 apt-get install hestia-php && systemctl restart hestia
 ```
 
-### B. PHP 7.0 / 7.1 / 7.2 / 7.3 / 7.4 / 8.0 / 8.1 — build patched
+### B. PHP 5.4 / 5.5 / 5.6 / 7.x / 8.0 / 8.1 — build patched
 
 ```bash
 apt-get install -y build-essential autoconf bison re2c pkg-config \
@@ -156,12 +158,18 @@ apt-get install -y build-essential autoconf bison re2c pkg-config \
 ./build/build-patched-php.sh 7.2.34 patches/php-7.2-enhanced-universal.patch /opt/php-7.2-patched
 ./build/build-patched-php.sh 7.1.33 patches/php-7.1-enhanced-universal.patch /opt/php-7.1-patched
 ./build/build-patched-php.sh 7.0.33 patches/php-7.0-enhanced-universal.patch /opt/php-7.0-patched
+./build/build-patched-php.sh 5.6.40 patches/php-5.6-enhanced-universal.patch /opt/php-5.6-patched
+./build/build-patched-php.sh 5.5.38 patches/php-5.5-enhanced-universal.patch /opt/php-5.5-patched
+./build/build-patched-php.sh 5.4.45 patches/php-5.4-enhanced-universal.patch /opt/php-5.4-patched
 
 # Or minimal (official approach, disables upload progress):
 ./build/build-patched-php.sh 7.4.33 patches/php-7.4-minimal.patch /opt/php-7.4-patched
 ./build/build-patched-php.sh 7.3.33 patches/php-7.3-minimal.patch /opt/php-7.3-patched
 ./build/build-patched-php.sh 7.2.34 patches/php-7.2-minimal.patch /opt/php-7.2-patched
 ./build/build-patched-php.sh 7.1.33 patches/php-7.1-minimal.patch /opt/php-7.1-patched
+./build/build-patched-php.sh 5.6.40 patches/php-5.6-community-backport.patch /opt/php-5.6-patched
+./build/build-patched-php.sh 5.5.38 patches/php-5.5-community-backport.patch /opt/php-5.5-patched
+./build/build-patched-php.sh 5.4.45 patches/php-5.4-community-backport.patch /opt/php-5.4-patched
 ```
 
 Then switch HestiaCP FPM pools / templates to the new binary, or install

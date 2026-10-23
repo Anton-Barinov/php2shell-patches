@@ -6,5 +6,6 @@
 $n = isset($argv[1]) ? (int)$argv[1] : 0;
 $data = "--b\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n"
       . str_repeat("a", $n) . "\r\n--b--\r\n";
-feed_multipart($data, "multipart/form-data; boundary=b");
-echo "LEN=", isset($_POST["a"]) ? strlen($_POST["a"]) : -1, "\n";
+$res = feed_multipart($data, "multipart/form-data; boundary=b");
+$post = (is_array($res) && !empty($res)) ? $res : (isset($_POST) ? $_POST : array());
+echo "LEN=", isset($post["a"]) ? strlen($post["a"]) : -1, "\n";
