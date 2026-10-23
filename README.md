@@ -45,6 +45,11 @@ stays enabled.
 
 ## Which fix do you need?
 
+Check the PHP version the **web server** runs, not just `php -v`: on many hosts
+the CLI and PHP-FPM / mod_php are different builds. A self-deleting
+[`check-php.php`](https://github.com/KyleClouthier/php2shell-check) reports the
+exact runtime version a site is served with, then removes itself.
+
 | Your PHP | Official fix? | What to do |
 |---|---|---|
 | 8.5.x < 8.5.12 | ✅ official | `apt upgrade` / distro package, or build from source |
