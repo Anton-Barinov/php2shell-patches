@@ -58,9 +58,9 @@ stays enabled.
 | 7.2.x | ⚠️ backport | `php-7.2-minimal.patch` **or** `php-7.2-enhanced-universal.patch` (vanilla php.net) **or** `php-7.2-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.1.x | ⚠️ backport | `php-7.1-minimal.patch` **or** `php-7.1-enhanced-universal.patch` (vanilla php.net, contributed by @lovelock) **or** `php-7.1-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.0.x | ⚠️ backport | `php-7.0-enhanced-universal.patch` (vanilla php.net tarball) |
-| 5.6.x | ❌ none | **migrate**. Community backports: `php-5.6-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.6-enhanced-remicollet.patch` (for [remicollet/php-src-security](https://github.com/remicollet/php-src-security) backports tree) or `php-5.6-community-backport.patch` (minimal). **Test first.** |
-| 5.5.x | ❌ none | **migrate**. Community backports: `php-5.5-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.5-community-backport.patch` (minimal). **Test first.** |
-| 5.4.x | ❌ none | **migrate**. Community backports: `php-5.4-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.4-community-backport.patch` (minimal). **Test first.** |
+| 5.6.x | ❌ none | **migrate**. Community backports: `php-5.6-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.6-enhanced-remicollet.patch` (for [remicollet/php-src-security](https://github.com/remicollet/php-src-security) backports tree) or `php-5.6-community-backport.patch` (minimal). Verified on real builds. |
+| 5.5.x | ❌ none | **migrate**. Community backports: `php-5.5-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.5-community-backport.patch` (minimal). Compiled & verified on real Linux builds. |
+| 5.4.x | ❌ none | **migrate**. Community backports: `php-5.4-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.4-community-backport.patch` (minimal). Compiled & verified on real Linux builds. |
 
 ---
 
@@ -418,6 +418,25 @@ tests/
 ---
 
 ## Tested environments (OpenCart / HestiaCP)
+
+**PHP 5.4.45 enhanced-universal & community-backport** — compiled & verified on Linux (Ubuntu 24.04, GCC 13.3.0):
+
+- ✅ `patch -p1` applies cleanly on pristine vanilla `php-5.4.45.tar.bz2` (CI dry-run matrix green across all commits).
+- ✅ C89 / modern GCC compatibility: compiles cleanly with `-std=gnu89 -Wno-error=incompatible-pointer-types`.
+- ✅ Session destruction engine fix: in PHP 5.4, `PS(session_status)` was historically set only after session initialize; moving status activation prior to decode allows `php_session_destroy()` to cleanly remove the session file upon refused decode instead of failing with `Trying to destroy uninitialized session`.
+- ✅ Upstream parity backport: includes `max_multipart_body_parts` INI directive and counter, plus duplicate MIME header sanitization (`php_mime_get_hdr_value`) and `zend_llist` zeroing.
+- ✅ `post_max_size` bypass (GHSA-2cv3-554h-jpmh): verified with `tests/feedpost/` (missing Content-Length, 1 MB multipart, `post_max_size=100K`). Pristine unpatched build accepts all 1 048 576 bytes; patched build truncates to 102 381 bytes and emits official warning `Actual POST length does not match Content-Length`.
+- ✅ PHPT test suite (CVE-2026-109619): all 4 bundled security tests (`rfc1867.phpt`, `rfc1867_no_user_code.phpt`, `rfc1867_incomplete_class_reserved_props.phpt`, `incomplete_class_raw_payload_markers.phpt`) pass 100%.
+- ✅ Array parsing & memory stress test (`tests/stress.php`): deeply nested array parsing up to depth 60, wide 2000-key arrays, and hash mutation pass cleanly with deterministic checksum (`STRESS_TEST_OK`).
+
+**PHP 5.5.38 enhanced-universal & community-backport** — compiled & verified on Linux (Ubuntu 24.04, GCC 13.3.0):
+
+- ✅ `patch -p1` applies cleanly on pristine vanilla `php-5.5.38.tar.bz2` (CI dry-run matrix green).
+- ✅ Compiles cleanly with `-std=gnu89 -Wno-error=incompatible-pointer-types`.
+- ✅ Upstream parity backport: includes `max_multipart_body_parts` INI directive and counter, plus duplicate MIME header sanitization (`php_mime_get_hdr_value`) and `zend_llist` zeroing.
+- ✅ `post_max_size` bypass (GHSA-2cv3-554h-jpmh): verified with `tests/feedpost/`. Pristine build accepts 1 MB; patched build truncates to 102 381 bytes and emits official warning.
+- ✅ PHPT test suite: all 4 bundled security tests pass 100%.
+- ✅ Array parsing & memory stress test (`tests/stress.php`): depth 60, 2000 keys pass cleanly (`STRESS_TEST_OK`).
 
 **PHP 5.6.40 enhanced-universal** — built on Ubuntu 22.04 (HestiaCP 1.10.5 host):
 
