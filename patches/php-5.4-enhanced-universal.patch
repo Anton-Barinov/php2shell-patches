@@ -1131,7 +1131,15 @@
  		BG(serialize_lock)++;
 --- a/main/main.c
 +++ b/main/main.c
-@@ -1790,6 +1790,8 @@
+@@ -558,6 +558,7 @@
+ 	PHP_INI_ENTRY("disable_functions",			"",			PHP_INI_SYSTEM,		NULL)
+ 	PHP_INI_ENTRY("disable_classes",			"",			PHP_INI_SYSTEM,		NULL)
+ 	PHP_INI_ENTRY("max_file_uploads",			"20",		PHP_INI_SYSTEM|PHP_INI_PERDIR,		NULL)
++	PHP_INI_ENTRY("max_multipart_body_parts",	"-1",		PHP_INI_SYSTEM|PHP_INI_PERDIR,		NULL)
+ 
+ 	STD_PHP_INI_BOOLEAN("allow_url_fopen",		"1",		PHP_INI_SYSTEM,		OnUpdateBool,		allow_url_fopen,		php_core_globals,		core_globals)
+ 	STD_PHP_INI_BOOLEAN("allow_url_include",	"0",		PHP_INI_SYSTEM,		OnUpdateBool,		allow_url_include,		php_core_globals,		core_globals)
+@@ -1790,6 +1791,8 @@
  		for (i=0; i<NUM_TRACK_VARS; i++) {
  			if (PG(http_globals)[i]) {
  				zval_ptr_dtor(&PG(http_globals)[i]);
@@ -1155,13 +1163,14 @@
  	/* calculate the free space in the buffer */
  	bytes_to_read = self->bufsize - self->bytes_in_buffer;
  
-@@ -395,6 +401,15 @@
+@@ -395,6 +401,16 @@
  	return 0;
  }
  
 +/* php2shell (CVE-2026-109618): limit which MIME headers are retained.
 + * An attacker can send a huge number of headers per multipart part; representing
 + * them all in PHP heap can exhaust memory_limit within post_max_size. */
++static char *php_mime_get_hdr_value(zend_llist header, char *key);
 +static zend_bool php_mime_should_save_hdr(const char *name)
 +{
 +	return !strcasecmp(name, "Content-Disposition")
@@ -1171,18 +1180,25 @@
  /* parse headers */
  static int multipart_buffer_headers(multipart_buffer *self, zend_llist *header TSRMLS_DC)
  {
-@@ -438,7 +453,9 @@
+@@ -438,8 +454,15 @@
  			*value = '\0';
  			do { value++; } while(isspace(*value));
  
 -			key = estrdup(line);
-+			if (php_mime_should_save_hdr(line)) {
+-			smart_str_appends(&buf_value, value);
++			/* Keep only headers we use, and ignore duplicates */
++			if (!php_mime_should_save_hdr(line)
++					|| php_mime_get_hdr_value(*header, line)) {
++				key = NULL;
++			} else {
 +				key = estrdup(line);
++				do { value++; } while(isspace((unsigned char)*value));
++				smart_str_appends(&buf_value, value);
 +			}
- 			smart_str_appends(&buf_value, value);
  		} else if (buf_value.c) { /* If no ':' on the line, add to previous line */
  			smart_str_appends(&buf_value, line);
-@@ -452,6 +469,8 @@
+ 		} else {
+@@ -452,6 +475,8 @@
  		entry.key = key;
  		entry.value = buf_value.c;
  		zend_llist_add_element(header, &entry);
@@ -1191,7 +1207,40 @@
  	}
  
  	return 1;
-@@ -1256,6 +1275,12 @@
+@@ -690,6 +715,8 @@
+ 	void *event_extra_data = NULL;
+ 	unsigned int llen = 0;
+ 	int upload_cnt = INI_INT("max_file_uploads");
++	int body_parts_cnt = INI_INT("max_multipart_body_parts");
++	int body_parts_limit;
+ 	const zend_encoding *internal_encoding = zend_multibyte_get_internal_encoding(TSRMLS_C);
+ 	php_rfc1867_getword_t getword;
+ 	php_rfc1867_getword_conf_t getword_conf;
+@@ -767,6 +794,11 @@
+ 	INIT_PZVAL(http_post_files);
+ 	PG(http_globals)[TRACK_VARS_FILES] = http_post_files;
+ 
++	if (body_parts_cnt < 0) {
++		body_parts_cnt = PG(max_input_vars) + upload_cnt;
++	}
++	body_parts_limit = body_parts_cnt;
++
+ 	zend_llist_init(&header, sizeof(mime_header_entry), (llist_dtor_func_t) php_free_hdr_entry, 0);
+ 
+ 	if (php_rfc1867_callback != NULL) {
+@@ -795,6 +827,11 @@
+ 			char *pair = NULL;
+ 			int end = 0;
+ 
++			if (--body_parts_cnt < 0) {
++				php_error_docref(NULL TSRMLS_CC, E_WARNING, "Multipart body parts limit exceeded %d. To increase the limit change max_multipart_body_parts in php.ini.", body_parts_limit);
++				goto fileupload_done;
++			}
++
+ 			while (isspace(*cd)) {
+ 				++cd;
+ 			}
+@@ -1256,6 +1293,12 @@
  	}
  
  fileupload_done:
