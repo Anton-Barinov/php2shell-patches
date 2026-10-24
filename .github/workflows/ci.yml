@@ -100,6 +100,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: "PHP 5.6 Security Tree (Minimal)"
+            branch: "PHP-5.6-security-backports"
+            patch: "patches/php-5.6-minimal-remicollet.patch"
           - name: "PHP 5.6 Security Tree"
             branch: "PHP-5.6-security-backports"
             patch: "patches/php-5.6-enhanced-remicollet.patch"

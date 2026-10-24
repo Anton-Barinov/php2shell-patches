@@ -58,7 +58,7 @@ stays enabled.
 | 7.2.x | ⚠️ backport | `php-7.2-minimal.patch` **or** `php-7.2-enhanced-universal.patch` (vanilla php.net) **or** `php-7.2-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.1.x | ⚠️ backport | `php-7.1-minimal.patch` **or** `php-7.1-enhanced-universal.patch` (vanilla php.net, contributed by @lovelock) **or** `php-7.1-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.0.x | ⚠️ backport | `php-7.0-enhanced-universal.patch` (vanilla php.net tarball) **or** `php-7.0-enhanced-remicollet.patch` (for Remi's tree) |
-| 5.6.x | ❌ none | **migrate**. Community backports: `php-5.6-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.6-enhanced-remicollet.patch` (for [remicollet/php-src-security](https://github.com/remicollet/php-src-security) backports tree) or `php-5.6-community-backport.patch` (minimal). Verified on real builds. |
+| 5.6.x | ❌ none | **migrate**. Community backports: `php-5.6-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.6-enhanced-remicollet.patch` (for [remicollet/php-src-security](https://github.com/remicollet/php-src-security) backports tree) or `php-5.6-minimal-remicollet.patch` (minimal for Remi's tree) or `php-5.6-minimal.patch` / `php-5.6-community-backport.patch` (minimal for vanilla). Verified on real builds. |
 | 5.5.x | ❌ none | **migrate**. Community backports: `php-5.5-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.5-community-backport.patch` (minimal). Compiled & verified on real Linux builds. |
 | 5.4.x | ❌ none | **migrate**. Community backports: `php-5.4-enhanced-universal.patch` (vanilla php.net tarball) or `php-5.4-community-backport.patch` (minimal). Compiled & verified on real Linux builds. |
 
@@ -383,7 +383,9 @@ patches/
   php-7.0-enhanced-remicollet.patch  # community enhanced for 7.0: adapted for remicollet tree
   php-5.6-enhanced-universal.patch   # community enhanced for 5.6: root-cause UAF fix (vanilla php.net tarball)
   php-5.6-enhanced-remicollet.patch  # community enhanced for 5.6: adapted for remicollet/php-src-security tree
-  php-5.6-community-backport.patch   # community minimal for 5.6 (force-disable) — TEST FIRST
+  php-5.6-minimal-remicollet.patch   # minimal for 5.6: force-disables upload progress (remicollet tree)
+  php-5.6-minimal.patch              # minimal for 5.6: force-disables upload progress (vanilla php.net)
+  php-5.6-community-backport.patch   # community minimal for 5.6 (force-disable) — legacy alias
 harden/
   php.ini-mitigations                # annotated php.ini snippet
   fpm-pool-snippet.conf              # lines to append to FPM pools
@@ -663,7 +665,7 @@ hosts that cannot jump straight to PHP 8.2+.
 **Remi Collet Security Backports Tree (`remicollet/php-src-security`)**:
 
 Dedicated patches are available for all branches in Remi Collet's security backports tree:
-- `php-5.6-enhanced-remicollet.patch` (branch `PHP-5.6-security-backports`)
+- `php-5.6-enhanced-remicollet.patch` & `php-5.6-minimal-remicollet.patch` (branch `PHP-5.6-security-backports`)
 - `php-7.0-enhanced-remicollet.patch` (branch `PHP-7.0-security-backports`)
 - `php-7.1-enhanced-remicollet.patch` (branch `PHP-7.1-security-backports`)
 - `php-7.2-enhanced-remicollet.patch` (branch `PHP-7.2-Security-backports`)
@@ -675,6 +677,7 @@ Dedicated patches are available for all branches in Remi Collet's security backp
 **Key advantage over stock Remi 7.4/8.0/8.1**: Remi's upstream backports commit (`Avoid state corruption via bailout` by Arnaud Le Blanc) completely disables upload progress by forcing `if (!PS(rfc1867_enabled) || true)`. Our enhanced remicollet patches supersede this blunt disable, cleanly restoring functional session upload progress protected by the official PHP 8.2.35 incomplete class mitigation (`MAGIC_MEMBER_SERIALIZED`, `incomplete_classes_only`, dropping `$_SESSION` on startup) while preserving Remi's native `Zend/` and MIME header hardening.
 
 **Server Validation (Ubuntu 20.04 LTS x86_64)**:
+- **Remi 5.6**: Compiled clean with `php-5.6-minimal-remicollet.patch`, passes `tests/feedpost/` (`RESULT: FIXED`), memory limit exhaustion clean fatal error (0 segfaults).
 - **Remi 7.0**: Compiled clean, passes `tests/feedpost/` (`RESULT: FIXED`), 100% PASS on security test suite, memory limit exhaustion clean fatal error (0 segfaults).
 - **Remi 7.4**: Compiled clean, passes `tests/feedpost/` (`RESULT: FIXED`, 1MB truncated to 102381 bytes with official warning), 100% PASS on security test suite.
 - **Remi 8.0**: Compiled clean, passes `tests/feedpost/` (`RESULT: FIXED`), 100% PASS on security tests, `tests/stress.php` PASS (`STRESS_TEST_OK`), clean fatal error on memory exhaustion.
