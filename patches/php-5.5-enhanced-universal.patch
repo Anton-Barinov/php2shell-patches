@@ -1198,7 +1198,7 @@
  /* parse headers */
  static int multipart_buffer_headers(multipart_buffer *self, zend_llist *header TSRMLS_DC)
  {
-@@ -438,8 +454,15 @@
+@@ -438,8 +454,14 @@
  			*value = '\0';
  			do { value++; } while(isspace(*value));
  
@@ -1210,7 +1210,6 @@
 +				key = NULL;
 +			} else {
 +				key = estrdup(line);
-+				do { value++; } while(isspace((unsigned char)*value));
 +				smart_str_appends(&buf_value, value);
 +			}
  		} else if (buf_value.c) { /* If no ':' on the line, add to previous line */
