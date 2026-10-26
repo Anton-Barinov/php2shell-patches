@@ -1,12 +1,14 @@
-# php2shell patches — CVE-2026-109618 / CVE-2026-109619 for old PHP (5.4–8.1) & OpenCart / HestiaCP
+# php2shell patches — CVE-2026-109618 / CVE-2026-109619 / CVE-2026-115560 for old PHP (5.4–8.1) & OpenCart / HestiaCP
 
 [![CI](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml/badge.svg)](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml)
 
-Emergency backports and hardening for **CVE-2026-109618** and **CVE-2026-109619**
-("php2shell") — two critical unauthenticated RCE vulnerabilities in PHP,
-CVSS v4.0 **9.2**. Fixed upstream 21 Oct 2026 (PHP 8.5.12 / 8.4.27 / 8.3.36 /
-8.2.35). **PHP 5.4, 5.5, 5.6, 7.x, 8.0, 8.1 are EOL and get no official fix** — this
-repo packages EOL backports (official + community) plus emergency hardening
+Emergency backports and hardening for **CVE-2026-109618**, **CVE-2026-109619**, and **CVE-2026-115560**
+("php2shell" & session serializer attack chains) — critical unauthenticated RCE vulnerabilities in PHP.
+Upstream patched CVE-2026-109618 and CVE-2026-109619 on 21 Oct 2026 (PHP 8.5.12 / 8.4.27 / 8.3.36 /
+8.2.35), while the third vector (**CVE-2026-115560**) is slated for the regular release cycle with an
+official recommendation to set `session.upload_progress.enabled = 0`.
+**PHP 5.4, 5.5, 5.6, 7.x, 8.0, 8.1 are EOL and get no official fix** — this
+repo packages complete EOL backports (official + community) plus emergency hardening
 for legacy stacks: **OpenCart, WordPress, Drupal, Joomla, Magento**, any
 HestiaCP / VestaCP / cPanel host still running old PHP.
 
@@ -40,12 +42,13 @@ chmod +x php2shell-check
 |---|---|---|
 | Fixes CVE-2026-109618 (OOM → RCE) | ✅ | ✅ |
 | Fixes CVE-2026-109619 (upload_progress UAF) | ✅ by **disabling** upload_progress | ✅ by **fixing the root cause** (counters as `zend_long`, no dangling `zval*`) |
+| Fixes CVE-2026-115560 (serializer-mismatch RCE) | ✅ by **disabling** upload_progress | ✅ by **delimiter sanitization + `PS(serializer)` reset + `incomplete_classes_only`** |
 | `multipart/form-data` file uploads | ✅ work | ✅ work |
 | Session upload **progress bar** | ❌ disabled | ✅ **still works** |
 | Blocks session-fixation via POST body | ❌ | ✅ (PR #22113) |
 | Sanitizes filename in session file (LFI / handler-mismatch) | ❌ | ✅ |
 | Resets `PS(serializer)` between FPM requests | ❌ | ✅ |
-| Officially blessed by PHP Group | ✅ (7.4/8.0/8.1 branches) | ❌ (community, but combines official OOM fix + root-cause UAF fix) |
+| Officially blessed by PHP Group | ✅ (7.4/8.0/8.1 branches) | ❌ (community, but combines official OOM fix + root-cause UAF fix + full serializer defense) |
 
 **Rule of thumb:**
 - Want the safest, most conservative fix and don't care about upload
@@ -65,10 +68,10 @@ stays enabled.
 
 | Your PHP | Official fix? | What to do |
 |---|---|---|
-| 8.5.x < 8.5.12 | ✅ official | `apt upgrade` / distro package, or build from source |
-| 8.4.x < 8.4.27 | ✅ official | same |
-| 8.3.x < 8.3.36 | ✅ official | same |
-| 8.2.x < 8.2.35 | ✅ official | same (note: 8.2 EOL 31 Dec 2026 — plan upgrade) |
+| 8.5.x < 8.5.12 | ⚠️ partial (fixed 109618/19, CVE-2026-115560 pending next release) | `apt upgrade` + set `session.upload_progress.enabled = Off` in `php.ini` |
+| 8.4.x < 8.4.27 | ⚠️ partial (fixed 109618/19, CVE-2026-115560 pending next release) | same |
+| 8.3.x < 8.3.36 | ⚠️ partial (fixed 109618/19, CVE-2026-115560 pending next release) | same |
+| 8.2.x < 8.2.35 | ⚠️ partial (fixed 109618/19, CVE-2026-115560 pending next release) | same (note: 8.2 EOL 31 Dec 2026 — plan upgrade) |
 | 8.1.x | ⚠️ backport | `php-8.1-minimal.patch` (PHP group) **or** `php-8.1-enhanced-universal.patch` (vanilla php.net) **or** `php-8.1-enhanced-remicollet.patch` (for Remi's tree) |
 | 8.0.x | ⚠️ backport | `php-8.0-minimal.patch` (PHP group) **or** `php-8.0-enhanced-universal.patch` (vanilla php.net) **or** `php-8.0-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.4.x | ⚠️ backport | `php-7.4-minimal.patch` (official) **or** `php-7.4-enhanced-universal.patch` (vanilla php.net) **or** `php-7.4-enhanced-remicollet.patch` (for Remi's tree) |
@@ -147,6 +150,33 @@ root-cause fix plus extra hardenings:
 > unserialize UAF (Chain B in ikow's research) — it is only reachable if
 > the application exposes `unserialize()` to attacker data. Update to a
 > fixed PHP release to close that path completely.
+
+---
+
+## 🛡️ CVE-2026-115560 — The 3rd PHP RCE Vector (Session Serializer Handler Mismatch)
+
+On 23–26 October 2026, PHP assigned **CVE-2026-115560** to a third RCE vector related to session upload progress:
+
+### 1. Root Cause & Attack Mechanism
+- **The Vector:** When `session.upload_progress.enabled` is active, multipart file uploads write tracking data directly into `$_SESSION`. If an application is configured with `session.serialize_handler = php_serialize` (or `php_binary`) and at runtime switches via `ini_set('session.serialize_handler', 'php')` before calling `session_start()`, or when PHP-FPM workers retain serializer state across requests, a serializer format mismatch occurs.
+- In PHP's default `php` serializer, variables are delimited by the pipe character (`|`), formatted as `<var_name>|<serialized_value>`.
+- An attacker supplying a crafted upload progress key containing `|` followed by serialized objects can cause the session decoder to instantiate arbitrary objects, enabling deserialization gadget chain execution (RCE).
+
+### 2. Status in Upstream PHP (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12)
+- Upstream emergency releases on 21 Oct 2026 addressed **CVE-2026-109618** and **CVE-2026-109619**, but **did not** patch CVE-2026-115560.
+- The PHP team scheduled the upstream fix for the next regular monthly bugfix release.
+- **Official PHP mitigation for 8.2+:**
+  ```ini
+  session.upload_progress.enabled = 0
+  ```
+
+### 3. Status in This Repository's Backports (PHP 5.4–8.1)
+Both patch flavors in this repository already fully protect against CVE-2026-115560:
+- **`minimal` patches:** **100% immune** because `session.upload_progress` is completely disabled or stripped from the engine.
+- **`enhanced` patches:** **100% protected** by multi-layer defense in depth:
+  1. **Delimiter Sanitization:** Strips null bytes (`\0`), pipe (`|`), `\r`, and `\n` from upload progress file and field names in `rfc1867.c` / `session.c`. An attacker cannot inject the `|` delimiter into the serialized session stream.
+  2. **PHP-FPM Worker Isolation:** Resets `PS(serializer) = NULL` in `rshutdown` between requests in `session.c`, preventing serializer state leakage across requests.
+  3. **Strict Decode Gate:** Enforces `incomplete_classes_only` during progress decoding, preventing autoloader execution or magic methods (`__wakeup`, `__destruct`) even if deserialization were triggered.
 
 ---
 

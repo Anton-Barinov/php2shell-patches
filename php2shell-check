@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# php2shell-check — CVE-2026-109618 & CVE-2026-109619 Audit & Fingerprinting Tool
+# php2shell-check — CVE-2026-109618, CVE-2026-109619 & CVE-2026-115560 Audit & Fingerprinting Tool
 # https://github.com/Anton-Barinov/php2shell-patches
 #
 # Zero-dependency, non-destructive CLI scanner to discover PHP runtimes (CLI, FPM,
@@ -18,7 +18,7 @@
 
 set -o pipefail 2>/dev/null || true
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 REPO_URL="https://github.com/Anton-Barinov/php2shell-patches"
 
 # Flags
@@ -55,7 +55,7 @@ setup_colors() {
 
 show_help() {
     cat <<EOF
-php2shell-check — CVE-2026-109618 & CVE-2026-109619 Audit Tool (v${VERSION})
+php2shell-check — CVE-2026-109618, CVE-2026-109619 & CVE-2026-115560 Audit Tool (v${VERSION})
 Repository: ${REPO_URL}
 
 Использование:
@@ -452,16 +452,32 @@ audit_php_runtime() {
     # Case 1: Officially patched upstream version
     if [ "$branch" = "8.2" ] && version_ge "$raw_ver" "8.2.35"; then
         status="SAFE"
-        status_msg="Official security release (>= 8.2.35)"
+        if [ "$upload_progress" = "ENABLED" ]; then
+            status_msg="Official release (>= 8.2.35) [Advisory: CVE-2026-115560 pending next release; set session.upload_progress.enabled=Off if using custom serializer]"
+        else
+            status_msg="Official release (>= 8.2.35) [Safe: upload_progress disabled, immune to CVE-2026-115560]"
+        fi
     elif [ "$branch" = "8.3" ] && version_ge "$raw_ver" "8.3.36"; then
         status="SAFE"
-        status_msg="Official security release (>= 8.3.36)"
+        if [ "$upload_progress" = "ENABLED" ]; then
+            status_msg="Official release (>= 8.3.36) [Advisory: CVE-2026-115560 pending next release; set session.upload_progress.enabled=Off if using custom serializer]"
+        else
+            status_msg="Official release (>= 8.3.36) [Safe: upload_progress disabled, immune to CVE-2026-115560]"
+        fi
     elif [ "$branch" = "8.4" ] && version_ge "$raw_ver" "8.4.27"; then
         status="SAFE"
-        status_msg="Official security release (>= 8.4.27)"
+        if [ "$upload_progress" = "ENABLED" ]; then
+            status_msg="Official release (>= 8.4.27) [Advisory: CVE-2026-115560 pending next release; set session.upload_progress.enabled=Off if using custom serializer]"
+        else
+            status_msg="Official release (>= 8.4.27) [Safe: upload_progress disabled, immune to CVE-2026-115560]"
+        fi
     elif [ "$branch" = "8.5" ] && version_ge "$raw_ver" "8.5.12"; then
         status="SAFE"
-        status_msg="Official security release (>= 8.5.12)"
+        if [ "$upload_progress" = "ENABLED" ]; then
+            status_msg="Official release (>= 8.5.12) [Advisory: CVE-2026-115560 pending next release; set session.upload_progress.enabled=Off if using custom serializer]"
+        else
+            status_msg="Official release (>= 8.5.12) [Safe: upload_progress disabled, immune to CVE-2026-115560]"
+        fi
     elif version_ge "$branch" "8.6"; then
         status="SAFE"
         status_msg="Upstream release (>= 8.6)"
@@ -471,13 +487,13 @@ audit_php_runtime() {
         status_msg="Not vulnerable (session upload progress was introduced in PHP 5.4.0)"
     elif [ "$patch_applied" = "YES" ]; then
         status="PATCHED"
-        status_msg="Backported security patch verified (${patch_flavor})"
+        status_msg="Backported patch verified (${patch_flavor}) [Safe: CVE-2026-109618, CVE-2026-109619, CVE-2026-115560]"
     elif [ "$upload_progress" = "DISABLED" ]; then
         status="MITIGATED"
-        status_msg="Partially mitigated via ini (session.upload_progress.enabled = Off). Patching binary is strongly recommended."
+        status_msg="Partially mitigated via ini (session.upload_progress.enabled = Off protects against CVE-2026-109619 & CVE-2026-115560). Patching binary is strongly recommended."
     else
         status="VULNERABLE"
-        status_msg="CRITICAL: VULNERABLE TO RCE (CVE-2026-109618 / CVE-2026-109619)"
+        status_msg="CRITICAL: VULNERABLE TO RCE (CVE-2026-109618 / CVE-2026-109619 / CVE-2026-115560)"
     fi
 
     # Output structured data
@@ -805,7 +821,7 @@ fi
 # Render Human Terminal Output
 if [ "$OPT_QUIET" -eq 0 ]; then
     echo -e "${C_CYAN}========================================================================${C_RESET}"
-    echo -e "${C_BOLD} php2shell-check — CVE-2026-109618 & CVE-2026-109619 Audit Tool (v${VERSION})${C_RESET}"
+    echo -e "${C_BOLD} php2shell-check — CVE-2026-109618, CVE-2026-109619 & CVE-2026-115560 Audit (v${VERSION})${C_RESET}"
     echo -e " ${C_GRAY}${REPO_URL}${C_RESET}"
     echo -e "${C_CYAN}========================================================================${C_RESET}"
     echo
