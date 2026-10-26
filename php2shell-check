@@ -1,0 +1,916 @@
+#!/usr/bin/env bash
+#
+# php2shell-check — CVE-2026-109618 & CVE-2026-109619 Audit & Fingerprinting Tool
+# https://github.com/Anton-Barinov/php2shell-patches
+#
+# Zero-dependency, non-destructive CLI scanner to discover PHP runtimes (CLI, FPM,
+# panels like aaPanel, HestiaCP, Plesk, cPanel, Remi), audit configurations,
+# detect backported security patches, and identify vulnerable instances.
+#
+# Usage:
+#   ./php2shell-check [OPTIONS]
+#   curl -fsSL https://raw.githubusercontent.com/Anton-Barinov/php2shell-patches/main/php2shell-check | bash
+#
+# Exit codes:
+#   0 - All scanned PHP runtimes are SAFE or PATCHED
+#   1 - At least one runtime is CRITICALLY VULNERABLE
+#   2 - One or more runtimes are PARTIALLY MITIGATED (or warnings)
+
+set -o pipefail 2>/dev/null || true
+
+VERSION="1.0.0"
+REPO_URL="https://github.com/Anton-Barinov/php2shell-patches"
+
+# Flags
+OPT_ALL=0
+OPT_FIX=0
+OPT_JSON=0
+OPT_QUIET=0
+OPT_URL=""
+
+# Colors (auto-disabled if not a tty or NO_COLOR / JSON mode)
+setup_colors() {
+    if [ "$OPT_JSON" -eq 1 ] || [ "$OPT_QUIET" -eq 1 ] || [ -n "${NO_COLOR:-}" ] || [ ! -t 1 ]; then
+        C_RESET=""
+        C_BOLD=""
+        C_RED=""
+        C_GREEN=""
+        C_YELLOW=""
+        C_BLUE=""
+        C_CYAN=""
+        C_MAGENTA=""
+        C_GRAY=""
+    else
+        C_RESET="\033[0m"
+        C_BOLD="\033[1m"
+        C_RED="\033[1;31m"
+        C_GREEN="\033[1;32m"
+        C_YELLOW="\033[1;33m"
+        C_BLUE="\033[1;34m"
+        C_CYAN="\033[1;36m"
+        C_MAGENTA="\033[1;35m"
+        C_GRAY="\033[0;90m"
+    fi
+}
+
+show_help() {
+    cat <<EOF
+php2shell-check — CVE-2026-109618 & CVE-2026-109619 Audit Tool (v${VERSION})
+Repository: ${REPO_URL}
+
+Использование:
+  ./php2shell-check [ОПЦИИ]
+
+Опции:
+  -a, --all             Глубокое сканирование файловой системы на скрытые бинарники PHP
+  -f, --fix-config      Сгенерировать и вывести команду для аварийного отключения upload_progress
+  -u, --url <URL>       Провести внешний неразрушающий аудит веб-сайта
+  -j, --json            Вывести результат в формате JSON (для CI/CD и Zabbix/Prometheus)
+  -q, --quiet           Выводить только критические ошибки и итоговый код возврата
+  -v, --version         Показать версию утилиты
+  -h, --help            Показать эту справку
+
+Коды возврата (Exit Codes):
+  0 - Все экземпляры PHP безопасны (SAFE или PATCHED)
+  1 - Обнаружен хотя бы один уязвимый экземпляр (CRITICAL: VULNERABLE)
+  2 - Обнаружено частичное смягчение (MITIGATED)
+
+Примеры:
+  # Экспресс-проверка сервера в одну строку:
+  curl -fsSL https://raw.githubusercontent.com/Anton-Barinov/php2shell-patches/main/php2shell-check | sudo bash
+
+  # Полный аудит с генерацией команд устранения:
+  sudo ./php2shell-check -a -f
+
+  # Безопасный удаленный тест сайта:
+  ./php2shell-check -u https://example.com/
+EOF
+}
+
+# Parse command line options
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -a|--all)
+            OPT_ALL=1
+            shift
+            ;;
+        -f|--fix|--fix-config)
+            OPT_FIX=1
+            shift
+            ;;
+        -u|--url)
+            if [ -z "${2:-}" ]; then
+                echo "Ошибка: опция --url требует аргумент URL" >&2
+                exit 1
+            fi
+            OPT_URL="$2"
+            shift 2
+            ;;
+        -j|--json)
+            OPT_JSON=1
+            shift
+            ;;
+        -q|--quiet)
+            OPT_QUIET=1
+            shift
+            ;;
+        -v|--version)
+            echo "php2shell-check v${VERSION}"
+            exit 0
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Неизвестная опция: $1 (используйте --help для справки)" >&2
+            exit 1
+            ;;
+    esac
+done
+
+setup_colors
+
+# Portable realpath resolver
+resolve_path() {
+    local target="$1"
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "$target" 2>/dev/null || echo "$target"
+    elif command -v readlink >/dev/null 2>&1; then
+        readlink -f "$target" 2>/dev/null || echo "$target"
+    else
+        echo "$target"
+    fi
+}
+
+# Semver comparison: version_ge "$v1" "$v2" returns 0 if v1 >= v2, 1 if v1 < v2
+version_ge() {
+    local v1="$1" v2="$2"
+    awk -v v1="$v1" -v v2="$v2" '
+    BEGIN {
+        n1 = split(v1, a, "[.-]");
+        n2 = split(v2, b, "[.-]");
+        max = (n1 > n2) ? n1 : n2;
+        for (i = 1; i <= max; i++) {
+            c1 = (i <= n1) ? a[i] + 0 : 0;
+            c2 = (i <= n2) ? b[i] + 0 : 0;
+            if (c1 > c2) exit 0;
+            if (c1 < c2) exit 1;
+        }
+        exit 0;
+    }'
+}
+
+# Version less than: version_lt "$v1" "$v2"
+version_lt() {
+    if version_ge "$1" "$2"; then
+        return 1
+    else
+        return 0
+    fi
+}
+
+# Detect running web servers
+detect_web_server() {
+    local servers=()
+    if pgrep -x nginx >/dev/null 2>&1 || pgrep -f "nginx:" >/dev/null 2>&1; then
+        servers+=("nginx")
+    fi
+    if pgrep -x apache2 >/dev/null 2>&1 || pgrep -x httpd >/dev/null 2>&1 || pgrep -f "apache2|httpd" >/dev/null 2>&1; then
+        servers+=("apache")
+    fi
+    if pgrep -x caddy >/dev/null 2>&1; then
+        servers+=("caddy")
+    fi
+    if pgrep -x lighttpd >/dev/null 2>&1; then
+        servers+=("lighttpd")
+    fi
+    if pgrep -x openlitespeed >/dev/null 2>&1 || pgrep -f "openlitespeed|lsws" >/dev/null 2>&1; then
+        servers+=("openlitespeed")
+    fi
+
+    if [ ${#servers[@]} -eq 0 ]; then
+        echo "none_or_proxy"
+    else
+        local IFS=", "
+        echo "${servers[*]}"
+    fi
+}
+
+# Detect hosting control panel
+detect_control_panel() {
+    if [ -d "/www/server/php" ] || [ -f "/www/server/panel/class/common.py" ]; then
+        echo "aaPanel / Baota (/www/server/php)"
+    elif [ -d "/usr/local/hestia" ]; then
+        echo "HestiaCP (/usr/local/hestia)"
+    elif [ -d "/usr/local/vesta" ]; then
+        echo "VestaCP (/usr/local/vesta)"
+    elif [ -d "/opt/plesk/php" ] || [ -d "/usr/local/psa" ]; then
+        echo "Plesk (/opt/plesk/php)"
+    elif [ -d "/opt/cpanel" ] || [ -d "/var/cpanel" ]; then
+        echo "cPanel / EasyApache (/opt/cpanel)"
+    elif [ -d "/opt/remi" ]; then
+        echo "Remi Repository (/opt/remi)"
+    elif [ -d "/usr/local/directadmin" ]; then
+        echo "DirectAdmin (/usr/local/directadmin)"
+    elif [ -d "/usr/local/mgr5" ]; then
+        echo "ISPmanager (/usr/local/mgr5)"
+    else
+        echo "None (Standard OS / Distribution)"
+    fi
+}
+
+# Find all PHP binaries
+discover_php_binaries() {
+    local candidates=()
+    local seen=()
+
+    # 1. Standard PATH / system locations
+    for p in /usr/bin/php* /usr/local/bin/php* /usr/sbin/php-fpm* /usr/local/sbin/php-fpm* /opt/php*/bin/php*; do
+        if [ -f "$p" ] && [ -x "$p" ]; then
+            candidates+=("$p")
+        fi
+    done
+
+    # 2. aaPanel / Baota locations
+    if [ -d "/www/server/php" ]; then
+        for p in /www/server/php/*/bin/php /www/server/php/*/sbin/php-fpm; do
+            if [ -f "$p" ] && [ -x "$p" ]; then
+                candidates+=("$p")
+            fi
+        done
+    fi
+
+    # 3. Plesk locations
+    if [ -d "/opt/plesk/php" ]; then
+        for p in /opt/plesk/php/*/bin/php /opt/plesk/php/*/sbin/php-fpm; do
+            if [ -f "$p" ] && [ -x "$p" ]; then
+                candidates+=("$p")
+            fi
+        done
+    fi
+
+    # 4. cPanel / EasyApache locations
+    if [ -d "/opt/cpanel" ]; then
+        for p in /opt/cpanel/ea-php*/root/usr/bin/php /opt/cpanel/ea-php*/root/usr/sbin/php-fpm; do
+            if [ -f "$p" ] && [ -x "$p" ]; then
+                candidates+=("$p")
+            fi
+        done
+    fi
+
+    # 5. Remi repository locations
+    if [ -d "/opt/remi" ]; then
+        for p in /opt/remi/php*/root/usr/bin/php /opt/remi/php*/root/usr/sbin/php-fpm; do
+            if [ -f "$p" ] && [ -x "$p" ]; then
+                candidates+=("$p")
+            fi
+        done
+    fi
+
+    # 6. Active processes in memory (ps aux)
+    if command -v ps >/dev/null 2>&1; then
+        local proc_bins
+        proc_bins=$(ps -eo args 2>/dev/null | grep -E "(php-fpm|php-cgi|bin/php)" | grep -v "grep" | awk '{print $1}' | sort -u)
+        for p in $proc_bins; do
+            if [ -f "$p" ] && [ -x "$p" ]; then
+                candidates+=("$p")
+            fi
+        done
+    fi
+
+    # 7. Deep scan if requested (-a, --all)
+    if [ "$OPT_ALL" -eq 1 ]; then
+        local deep_bins
+        deep_bins=$(find /usr /opt /www /usr/local /home /var -maxdepth 4 -type f \( -name "php" -o -name "php[0-9]*" -o -name "php-fpm*" \) -perm -111 2>/dev/null || true)
+        for p in $deep_bins; do
+            if [ -f "$p" ] && [ -x "$p" ]; then
+                candidates+=("$p")
+            fi
+        done
+    fi
+
+    # Filter out backup files (*.bak*), non-executables, and deduplicate realpaths
+    local deduped=()
+    for bin in "${candidates[@]}"; do
+        # Skip backup and temporary files
+        case "$bin" in
+            *.bak*|*.swapbak*|*~|*.orig|*.old)
+                continue
+                ;;
+        esac
+
+        local rpath
+        rpath=$(resolve_path "$bin")
+        if [ ! -f "$rpath" ] || [ ! -x "$rpath" ]; then
+            continue
+        fi
+
+        # Check if already in seen list
+        local already_seen=0
+        for s in "${seen[@]}"; do
+            if [ "$s" = "$rpath" ]; then
+                already_seen=1
+                break
+            fi
+        done
+
+        if [ "$already_seen" -eq 0 ]; then
+            seen+=("$rpath")
+            deduped+=("$rpath")
+        fi
+    done
+
+    printf '%s\n' "${deduped[@]}"
+}
+
+# Audit a single PHP runtime instance
+audit_php_runtime() {
+    local bin="$1"
+
+    # 1. Version extraction
+    local v_output
+    v_output=$("$bin" -v 2>&1 | head -n 1 || true)
+    local raw_ver
+    raw_ver=$(echo "$v_output" | sed -n 's/.*PHP \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
+    if [ -z "$raw_ver" ]; then
+        raw_ver=$(echo "$v_output" | sed -n 's/.*PHP \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
+    fi
+    if [ -z "$raw_ver" ]; then
+        raw_ver="unknown"
+    fi
+
+    # Determine major and minor
+    local major minor
+    major=$(echo "$raw_ver" | cut -d. -f1)
+    minor=$(echo "$raw_ver" | cut -d. -f2)
+    local branch="${major}.${minor}"
+
+    # Determine SAPI type
+    local sapi="cli"
+    case "$bin" in
+        *php-fpm*) sapi="fpm" ;;
+        *php-cgi*) sapi="cgi" ;;
+        *)
+            local sapi_check
+            sapi_check=$("$bin" -r "echo PHP_SAPI;" 2>/dev/null || echo "cli")
+            sapi="$sapi_check"
+            ;;
+    esac
+
+    # 2. Check for active FPM process matching this version
+    local fpm_active="NO"
+    local fpm_listen=""
+    local fpm_conf=""
+    if command -v ps >/dev/null 2>&1; then
+        local proc_match
+        proc_match=$(ps aux 2>/dev/null | grep -E "php-fpm.*(${branch}|${major}${minor})" | grep -v "grep" | head -n 1 || true)
+        if [ -n "$proc_match" ]; then
+            fpm_active="YES"
+            # Extract config file from ps
+            fpm_conf=$(echo "$proc_match" | sed -n 's/.*master process (\(.*\))/\1/p')
+            if [ -n "$fpm_conf" ] && [ -f "$fpm_conf" ]; then
+                fpm_listen=$(grep -E '^\s*listen\s*=' "$fpm_conf" 2>/dev/null | head -n 1 | awk '{print $NF}' || true)
+                if [ -z "$fpm_listen" ]; then
+                    # Check pool.d directory
+                    local conf_dir
+                    conf_dir=$(dirname "$fpm_conf")
+                    if [ -d "$conf_dir/pool.d" ]; then
+                        fpm_listen=$(grep -E '^\s*listen\s*=' "$conf_dir/pool.d"/*.conf 2>/dev/null | head -n 1 | awk -F'=' '{print $2}' | xargs || true)
+                    fi
+                fi
+            fi
+        fi
+    fi
+
+    # 3. Find loaded php.ini
+    local ini_path
+    ini_path=$("$bin" --ini 2>/dev/null | grep -E "Loaded Configuration File" | awk -F': ' '{print $2}' | xargs || true)
+    if [ -z "$ini_path" ] || [ "$ini_path" = "(none)" ]; then
+        ini_path="none"
+    fi
+
+    # 4. Check session.upload_progress.enabled
+    local upload_progress_val
+    upload_progress_val=$("$bin" -r "echo ini_get('session.upload_progress.enabled');" 2>/dev/null || true)
+    local upload_progress="ENABLED"
+    if [ "$upload_progress_val" = "0" ] || [ "$upload_progress_val" = "" ] || [ "$upload_progress_val" = "Off" ]; then
+        upload_progress="DISABLED"
+    fi
+
+    # Check FPM pool for admin_value overrides
+    local pool_override=0
+    if [ -n "$fpm_conf" ]; then
+        local conf_dir
+        conf_dir=$(dirname "$fpm_conf")
+        if grep -rq "php_admin_value\[session.upload_progress.enabled\]\s*=\s*\(Off\|0\)" "$fpm_conf" "$conf_dir/pool.d" 2>/dev/null; then
+            upload_progress="DISABLED"
+            pool_override=1
+        fi
+    fi
+
+    # 5. Patch detection
+    local patch_applied="NO"
+    local patch_flavor="none"
+
+    # Signal A: max_multipart_body_parts INI directive (backported to 5.4-8.1 in patched builds)
+    local mmbp
+    mmbp=$("$bin" -n -r "echo ini_get('max_multipart_body_parts') !== false ? '1' : '0';" 2>/dev/null || echo "0")
+    if [ "$mmbp" = "1" ]; then
+        patch_applied="YES"
+        patch_flavor="enhanced_universal"
+    fi
+
+    # Signal B: Unique warning string in rfc1867.c added by CVE-2026-109618 fix
+    if [ "$patch_applied" = "NO" ]; then
+        if grep -a -q "Actual POST length does not match Content-Length" "$bin" 2>/dev/null; then
+            patch_applied="YES"
+            patch_flavor="backport_verified"
+        fi
+    fi
+
+    # Signal C: Allocator hardening symbol
+    if [ "$patch_applied" = "NO" ]; then
+        if grep -a -q "zend_mm_safe_error_ex" "$bin" 2>/dev/null; then
+            patch_applied="YES"
+            patch_flavor="allocator_hardened"
+        fi
+    fi
+
+    # Signal D: Incomplete class marker
+    if [ "$patch_applied" = "NO" ]; then
+        if grep -a -q "incomplete_classes_only" "$bin" 2>/dev/null; then
+            patch_applied="YES"
+            patch_flavor="enhanced_classes_protected"
+        fi
+    fi
+
+    # 6. Status Classification
+    local status="VULNERABLE"
+    local status_msg=""
+
+    # Case 1: Officially patched upstream version
+    if [ "$branch" = "8.2" ] && version_ge "$raw_ver" "8.2.35"; then
+        status="SAFE"
+        status_msg="Official security release (>= 8.2.35)"
+    elif [ "$branch" = "8.3" ] && version_ge "$raw_ver" "8.3.36"; then
+        status="SAFE"
+        status_msg="Official security release (>= 8.3.36)"
+    elif [ "$branch" = "8.4" ] && version_ge "$raw_ver" "8.4.27"; then
+        status="SAFE"
+        status_msg="Official security release (>= 8.4.27)"
+    elif [ "$branch" = "8.5" ] && version_ge "$raw_ver" "8.5.12"; then
+        status="SAFE"
+        status_msg="Official security release (>= 8.5.12)"
+    elif version_ge "$branch" "8.6"; then
+        status="SAFE"
+        status_msg="Upstream release (>= 8.6)"
+    elif version_lt "$branch" "5.4"; then
+        # PHP <= 5.3 is immune (upload progress was introduced in PHP 5.4.0)
+        status="SAFE"
+        status_msg="Not vulnerable (session upload progress was introduced in PHP 5.4.0)"
+    elif [ "$patch_applied" = "YES" ]; then
+        status="PATCHED"
+        status_msg="Backported security patch verified (${patch_flavor})"
+    elif [ "$upload_progress" = "DISABLED" ]; then
+        status="MITIGATED"
+        status_msg="Partially mitigated via ini (session.upload_progress.enabled = Off). Patching binary is strongly recommended."
+    else
+        status="VULNERABLE"
+        status_msg="CRITICAL: VULNERABLE TO RCE (CVE-2026-109618 / CVE-2026-109619)"
+    fi
+
+    # Output structured data
+    echo "${bin}|${raw_ver}|${branch}|${sapi}|${fpm_active}|${fpm_listen}|${ini_path}|${upload_progress}|${patch_applied}|${status}|${status_msg}"
+}
+
+# Remote Web Audit Mode (--url)
+run_remote_audit() {
+    local target_url="$OPT_URL"
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "Ошибка: для удаленного режима требуется утилита curl" >&2
+        exit 1
+    fi
+
+    if [ "$OPT_QUIET" -eq 0 ] && [ "$OPT_JSON" -eq 0 ]; then
+        echo -e "${C_CYAN}========================================================================${C_RESET}"
+        echo -e "${C_BOLD} php2shell-check — Remote Non-Destructive Web Audit (v${VERSION})${C_RESET}"
+        echo -e " ${C_GRAY}${REPO_URL}${C_RESET}"
+        echo -e "${C_CYAN}========================================================================${C_RESET}"
+        echo
+        echo -e "[*] Auditing remote target: ${C_BOLD}${target_url}${C_RESET}..."
+    fi
+
+    # Step 1: Probe HTTP response headers
+    local header_file body_file
+    header_file=$(mktemp 2>/dev/null || mktemp -t 'p2s_hdr')
+    body_file=$(mktemp 2>/dev/null || mktemp -t 'p2s_body')
+    trap 'rm -f "$header_file" "$body_file"' EXIT
+
+    local http_code
+    http_code=$(curl -sS -L --max-time 15 -D "$header_file" -o "$body_file" -w "%{http_code}" "$target_url" 2>/dev/null || echo "000")
+
+    if [ "$http_code" = "000" ]; then
+        if [ "$OPT_JSON" -eq 1 ]; then
+            echo "{\"error\": \"Failed to connect to target URL: $target_url\"}"
+        else
+            echo -e "${C_RED}[!] Ошибка: Не удалось установить соединение с $target_url${C_RESET}"
+        fi
+        exit 1
+    fi
+
+    local server_hdr powered_by set_cookie
+    server_hdr=$(grep -i "^server:" "$header_file" | head -n 1 | awk -F': ' '{print $2}' | tr -d '\r\n')
+    powered_by=$(grep -i "^x-powered-by:" "$header_file" | head -n 1 | awk -F': ' '{print $2}' | tr -d '\r\n')
+    set_cookie=$(grep -i "^set-cookie:" "$header_file" | head -n 1 | tr -d '\r\n')
+
+    # Detect WAF / CDN
+    local waf_detected="NONE"
+    if echo "$server_hdr" | grep -qi "cloudflare"; then
+        waf_detected="Cloudflare"
+    elif grep -qi "cf-ray" "$header_file"; then
+        waf_detected="Cloudflare"
+    elif grep -qi "x-amz-cf-id" "$header_file"; then
+        waf_detected="AWS CloudFront / WAF"
+    elif grep -qi "x-sucuri-id" "$header_file"; then
+        waf_detected="Sucuri CloudProxy WAF"
+    elif grep -qi "akamai" "$header_file"; then
+        waf_detected="Akamai"
+    fi
+
+    # Step 2: Safe, tiny multipart probe (under 250 bytes)
+    # Does the server start a session when receiving PHP_SESSION_UPLOAD_PROGRESS?
+    local boundary="----php2shellcheck$$"
+    local post_body
+    post_body=$(mktemp 2>/dev/null || mktemp -t 'p2s_post')
+    {
+        printf -- '--%s\r\n' "$boundary"
+        printf 'Content-Disposition: form-data; name="PHP_SESSION_UPLOAD_PROGRESS"\r\n\r\np2s_probe\r\n'
+        printf -- '--%s\r\n' "$boundary"
+        printf 'Content-Disposition: form-data; name="probe_file"; filename="probe.txt"\r\nContent-Type: text/plain\r\n\r\nOK\r\n'
+        printf -- '--%s--\r\n' "$boundary"
+    } > "$post_body"
+
+    local probe_hdr
+    probe_hdr=$(mktemp 2>/dev/null || mktemp -t 'p2s_probe_hdr')
+    curl -sS --max-time 15 -X POST \
+         -H "Content-Type: multipart/form-data; boundary=$boundary" \
+         --data-binary "@$post_body" \
+         -D "$probe_hdr" -o /dev/null "$target_url" 2>/dev/null || true
+
+    local probe_cookie
+    probe_cookie=$(grep -i "^set-cookie:" "$probe_hdr" | grep -iE "(PHPSESSID|session)" | head -n 1 | tr -d '\r\n' || true)
+
+    rm -f "$post_body" "$probe_hdr"
+
+    # Analyze remote verdict
+    local remote_status="INCONCLUSIVE"
+    local remote_details=""
+
+    local parsed_ver=""
+    if [ -n "$powered_by" ]; then
+        parsed_ver=$(echo "$powered_by" | sed -n 's/.*PHP\/\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
+    fi
+
+    if [ -n "$parsed_ver" ]; then
+        local p_major p_minor p_branch
+        p_major=$(echo "$parsed_ver" | cut -d. -f1)
+        p_minor=$(echo "$parsed_ver" | cut -d. -f2)
+        p_branch="${p_major}.${p_minor}"
+
+        if [ "$p_branch" = "8.2" ] && version_ge "$parsed_ver" "8.2.35"; then
+            remote_status="SAFE"
+            remote_details="Upstream safe release reported (PHP $parsed_ver >= 8.2.35)"
+        elif [ "$p_branch" = "8.3" ] && version_ge "$parsed_ver" "8.3.36"; then
+            remote_status="SAFE"
+            remote_details="Upstream safe release reported (PHP $parsed_ver >= 8.3.36)"
+        elif [ "$p_branch" = "8.4" ] && version_ge "$parsed_ver" "8.4.27"; then
+            remote_status="SAFE"
+            remote_details="Upstream safe release reported (PHP $parsed_ver >= 8.4.27)"
+        elif [ "$p_branch" = "8.5" ] && version_ge "$parsed_ver" "8.5.12"; then
+            remote_status="SAFE"
+            remote_details="Upstream safe release reported (PHP $parsed_ver >= 8.5.12)"
+        elif version_ge "$p_branch" "8.6"; then
+            remote_status="SAFE"
+            remote_details="Upstream release (PHP $parsed_ver >= 8.6)"
+        elif version_lt "$p_branch" "5.4"; then
+            remote_status="SAFE"
+            remote_details="Immune (PHP $parsed_ver <= 5.3 lacks upload_progress)"
+        else
+            # EOL Version in vulnerable window
+            if [ -n "$probe_cookie" ] && [ -z "$set_cookie" ]; then
+                remote_status="VULNERABLE"
+                remote_details="EOL PHP $parsed_ver detected and upload_progress handler actively initializes sessions!"
+            else
+                remote_status="MITIGATED"
+                remote_details="EOL PHP $parsed_ver detected, but upload progress is disabled or not initializing sessions."
+            fi
+        fi
+    else
+        # No X-Powered-By
+        if [ -n "$probe_cookie" ] && [ -z "$set_cookie" ]; then
+            remote_status="VULNERABLE"
+            remote_details="PHP upload progress tracking actively initializes sessions upon multipart upload."
+        elif [ "$waf_detected" != "NONE" ]; then
+            remote_status="SAFE"
+            remote_details="Traffic is protected behind $waf_detected; headers are masked."
+        else
+            remote_status="SAFE"
+            remote_details="No vulnerable PHP signatures exposed in public response headers."
+        fi
+    fi
+
+    # Output
+    if [ "$OPT_JSON" -eq 1 ]; then
+        cat <<EOF
+{
+  "target": "$target_url",
+  "http_code": $http_code,
+  "server_header": "$server_hdr",
+  "x_powered_by": "$powered_by",
+  "php_version": "$parsed_ver",
+  "waf": "$waf_detected",
+  "status": "$remote_status",
+  "details": "$remote_details"
+}
+EOF
+    else
+        echo -e "    [+] HTTP Response:       ${C_BOLD}${http_code}${C_RESET}"
+        [ -n "$server_hdr" ]  && echo -e "    [+] Web Server Header:   ${server_hdr}"
+        [ -n "$powered_by" ]  && echo -e "    [+] X-Powered-By:        ${powered_by}"
+        [ "$waf_detected" != "NONE" ] && echo -e "    [+] WAF / CDN Detected:  ${C_YELLOW}${waf_detected}${C_RESET}"
+        echo
+        case "$remote_status" in
+            SAFE)
+                echo -e "    Result:  [ ${C_GREEN}OK: SAFE${C_RESET} ]"
+                echo -e "    Details: ${remote_details}"
+                ;;
+            MITIGATED)
+                echo -e "    Result:  [ ${C_YELLOW}WARNING: PARTIALLY MITIGATED${C_RESET} ]"
+                echo -e "    Details: ${remote_details}"
+                ;;
+            VULNERABLE)
+                echo -e "    Result:  [ ${C_RED}!! CRITICAL: VULNERABLE TO RCE !!${C_RESET} ]"
+                echo -e "    Details: ${remote_details}"
+                echo
+                echo -e "${C_BOLD}RECOMMENDED ACTION:${C_RESET}"
+                echo -e "  Apply backported security patches to the web server immediately:"
+                echo -e "  -> ${C_CYAN}${REPO_URL}${C_RESET}"
+                ;;
+            *)
+                echo -e "    Result:  [ ${C_GRAY}INCONCLUSIVE${C_RESET} ]"
+                echo -e "    Details: ${remote_details}"
+                ;;
+        esac
+        echo -e "${C_CYAN}========================================================================${C_RESET}"
+    fi
+
+    if [ "$remote_status" = "VULNERABLE" ]; then
+        exit 1
+    elif [ "$remote_status" = "MITIGATED" ]; then
+        exit 2
+    else
+        exit 0
+    fi
+}
+
+# If remote audit requested, run it now
+if [ -n "$OPT_URL" ]; then
+    run_remote_audit
+fi
+
+# ============================================================================
+# Local System Audit Engine
+# ============================================================================
+
+# Check UID
+if [ "$(id -u 2>/dev/null || echo 1000)" -ne 0 ] && [ "$OPT_QUIET" -eq 0 ] && [ "$OPT_JSON" -eq 0 ]; then
+    echo -e "${C_YELLOW}[!] Внимание: Скрипт запущен не от пользователя root (uid=$(id -u)).${C_RESET}"
+    echo -e "    Для полного аудита FPM пулов и системных директорий запустите через sudo.\n"
+fi
+
+WEB_SERVER=$(detect_web_server)
+CONTROL_PANEL=$(detect_control_panel)
+
+# Find all PHP binaries
+PHP_BINS=()
+while IFS= read -r line; do
+    if [ -n "$line" ]; then
+        PHP_BINS+=("$line")
+    fi
+done < <(discover_php_binaries)
+
+TOTAL_COUNT=${#PHP_BINS[@]}
+SAFE_COUNT=0
+PATCHED_COUNT=0
+MITIGATED_COUNT=0
+VULN_COUNT=0
+
+AUDIT_RESULTS=()
+FIX_COMMANDS=()
+
+for bin in "${PHP_BINS[@]}"; do
+    res=$(audit_php_runtime "$bin")
+    AUDIT_RESULTS+=("$res")
+
+    # Parse status
+    status=$(echo "$res" | cut -d'|' -f10)
+    case "$status" in
+        SAFE)       SAFE_COUNT=$((SAFE_COUNT + 1)) ;;
+        PATCHED)    PATCHED_COUNT=$((PATCHED_COUNT + 1)) ;;
+        MITIGATED)  MITIGATED_COUNT=$((MITIGATED_COUNT + 1)) ;;
+        VULNERABLE) VULN_COUNT=$((VULN_COUNT + 1)) ;;
+    esac
+
+    # If vulnerable or mitigated and fix requested, prepare commands
+    if [ "$status" = "VULNERABLE" ] || [ "$status" = "MITIGATED" ]; then
+        ini_file=$(echo "$res" | cut -d'|' -f7)
+        branch=$(echo "$res" | cut -d'|' -f3)
+        if [ -n "$ini_file" ] && [ "$ini_file" != "none" ] && [ -f "$ini_file" ]; then
+            FIX_COMMANDS+=("sed -i 's/^[; ]*session.upload_progress.enabled\s*=.*/session.upload_progress.enabled = Off/' \"$ini_file\"")
+        fi
+    fi
+done
+
+# Render JSON output
+if [ "$OPT_JSON" -eq 1 ]; then
+    cat <<EOF
+{
+  "scanner": "php2shell-check",
+  "version": "${VERSION}",
+  "repository": "${REPO_URL}",
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)",
+  "web_server": "${WEB_SERVER}",
+  "control_panel": "${CONTROL_PANEL}",
+  "summary": {
+    "total": ${TOTAL_COUNT},
+    "safe": ${SAFE_COUNT},
+    "patched": ${PATCHED_COUNT},
+    "mitigated": ${MITIGATED_COUNT},
+    "vulnerable": ${VULN_COUNT}
+  },
+  "installations": [
+EOF
+    idx=0
+    for res in "${AUDIT_RESULTS[@]}"; do
+        bin=$(echo "$res" | cut -d'|' -f1)
+        ver=$(echo "$res" | cut -d'|' -f2)
+        branch=$(echo "$res" | cut -d'|' -f3)
+        sapi=$(echo "$res" | cut -d'|' -f4)
+        fpm_active=$(echo "$res" | cut -d'|' -f5)
+        fpm_listen=$(echo "$res" | cut -d'|' -f6)
+        ini_path=$(echo "$res" | cut -d'|' -f7)
+        upload_prog=$(echo "$res" | cut -d'|' -f8)
+        patch_app=$(echo "$res" | cut -d'|' -f9)
+        status=$(echo "$res" | cut -d'|' -f10)
+        status_msg=$(echo "$res" | cut -d'|' -f11)
+
+        idx=$((idx + 1))
+        comma=","
+        if [ "$idx" -eq "$TOTAL_COUNT" ]; then
+            comma=""
+        fi
+
+        cat <<EOF
+    {
+      "path": "$bin",
+      "version": "$ver",
+      "branch": "$branch",
+      "sapi": "$sapi",
+      "fpm_active": $([ "$fpm_active" = "YES" ] && echo "true" || echo "false"),
+      "fpm_listen": $([ -n "$fpm_listen" ] && echo "\"$fpm_listen\"" || echo "null"),
+      "ini_path": "$ini_path",
+      "upload_progress": $([ "$upload_prog" = "ENABLED" ] && echo "true" || echo "false"),
+      "patch_applied": $([ "$patch_app" = "YES" ] && echo "true" || echo "false"),
+      "status": "$status",
+      "details": "$status_msg"
+    }$comma
+EOF
+    done
+    cat <<EOF
+  ]
+}
+EOF
+    # Exit with code
+    if [ "$VULN_COUNT" -gt 0 ]; then
+        exit 1
+    elif [ "$MITIGATED_COUNT" -gt 0 ]; then
+        exit 2
+    else
+        exit 0
+    fi
+fi
+
+# Render Human Terminal Output
+if [ "$OPT_QUIET" -eq 0 ]; then
+    echo -e "${C_CYAN}========================================================================${C_RESET}"
+    echo -e "${C_BOLD} php2shell-check — CVE-2026-109618 & CVE-2026-109619 Audit Tool (v${VERSION})${C_RESET}"
+    echo -e " ${C_GRAY}${REPO_URL}${C_RESET}"
+    echo -e "${C_CYAN}========================================================================${C_RESET}"
+    echo
+    echo -e "[*] Scanning active web services and PHP runtimes..."
+    echo -e "    [+] Web server detected:  ${C_BOLD}${WEB_SERVER}${C_RESET}"
+    echo -e "    [+] Control panel:        ${C_BOLD}${CONTROL_PANEL}${C_RESET}"
+    echo
+    echo -e "[+] Found ${C_BOLD}${TOTAL_COUNT}${C_RESET} PHP installation(s):"
+    echo
+
+    idx=0
+    for res in "${AUDIT_RESULTS[@]}"; do
+        idx=$((idx + 1))
+        bin=$(echo "$res" | cut -d'|' -f1)
+        ver=$(echo "$res" | cut -d'|' -f2)
+        branch=$(echo "$res" | cut -d'|' -f3)
+        sapi=$(echo "$res" | cut -d'|' -f4)
+        fpm_active=$(echo "$res" | cut -d'|' -f5)
+        fpm_listen=$(echo "$res" | cut -d'|' -f6)
+        ini_path=$(echo "$res" | cut -d'|' -f7)
+        upload_prog=$(echo "$res" | cut -d'|' -f8)
+        patch_app=$(echo "$res" | cut -d'|' -f9)
+        status=$(echo "$res" | cut -d'|' -f10)
+        status_msg=$(echo "$res" | cut -d'|' -f11)
+
+        fpm_note=""
+        if [ "$fpm_active" = "YES" ]; then
+            if [ -n "$fpm_listen" ]; then
+                fpm_note=" (FPM active on ${fpm_listen})"
+            else
+                fpm_note=" (FPM process active in memory)"
+            fi
+        fi
+
+        echo -e "[${idx}] ${C_BOLD}${bin}${C_RESET}${C_GRAY}${fpm_note}${C_RESET}"
+        echo -e "    - Version:         ${ver}"
+        echo -e "    - upload_progress: $([ "$upload_prog" = "ENABLED" ] && echo -e "${C_RED}ENABLED (On)${C_RESET}" || echo -e "${C_GREEN}DISABLED (Off)${C_RESET}")"
+        echo -e "    - Patch applied:   $([ "$patch_app" = "YES" ] && echo -e "${C_GREEN}YES${C_RESET}" || echo "NO")"
+        if [ "$ini_path" != "none" ]; then
+            echo -e "    - Loaded ini:      ${ini_path}"
+        fi
+
+        case "$status" in
+            SAFE)
+                echo -e "    - Status:          [ ${C_GREEN}OK: SAFE${C_RESET} ] (${status_msg})"
+                ;;
+            PATCHED)
+                echo -e "    - Status:          [ ${C_GREEN}OK: PATCHED${C_RESET} ] (${status_msg})"
+                ;;
+            MITIGATED)
+                echo -e "    - Status:          [ ${C_YELLOW}WARNING: PARTIALLY MITIGATED${C_RESET} ]"
+                echo -e "                       ${C_GRAY}${status_msg}${C_RESET}"
+                ;;
+            VULNERABLE)
+                echo -e "    - Status:          [ ${C_RED}!! CRITICAL: VULNERABLE TO RCE !!${C_RESET} ]"
+                echo -e "                       ${C_RED}${status_msg}${C_RESET}"
+                ;;
+        esac
+        echo
+    done
+
+    echo -e "${C_CYAN}------------------------------------------------------------------------${C_RESET}"
+    echo -e "${C_BOLD}SUMMARY:${C_RESET}"
+    echo -e "  Total installations scanned: ${C_BOLD}${TOTAL_COUNT}${C_RESET}"
+    echo -e "  Safe / Patched:              ${C_GREEN}$((SAFE_COUNT + PATCHED_COUNT))${C_RESET}"
+    echo -e "  Mitigated by config:         ${C_YELLOW}${MITIGATED_COUNT}${C_RESET}"
+    echo -e "  Critically Vulnerable:       $([ "$VULN_COUNT" -gt 0 ] && echo -e "${C_RED}${VULN_COUNT}${C_RESET}" || echo -e "${C_GREEN}0${C_RESET}")"
+    echo
+
+    if [ "$VULN_COUNT" -gt 0 ] || [ "$MITIGATED_COUNT" -gt 0 ] || [ "$OPT_FIX" -eq 1 ]; then
+        echo -e "${C_BOLD}ACTION REQUIRED / REMEDIATION:${C_RESET}"
+
+        # aaPanel hint
+        if [[ "$CONTROL_PANEL" == *"aaPanel"* ]]; then
+            echo -e "  ${C_BOLD}[aaPanel detected]${C_RESET} Apply automated in-place build & swap:"
+            echo -e "  -> ${C_CYAN}./deploy/swap-aapanel-php.sh install <ver>${C_RESET} (e.g. 74, 80, 81)"
+            echo
+        fi
+
+        # Distro package / community backport hints
+        echo -e "  ${C_BOLD}[Recommended]${C_RESET} Rebuild/patch your vulnerable EOL runtimes with repository patches:"
+        echo -e "  -> ${C_CYAN}${REPO_URL}#available-patches${C_RESET}"
+        echo
+
+        # Emergency configuration mitigation
+        if [ ${#FIX_COMMANDS[@]} -gt 0 ]; then
+            echo -e "  ${C_BOLD}[Emergency Mitigation]${C_RESET} Disable upload_progress in configuration right now:"
+            for cmd in "${FIX_COMMANDS[@]}"; do
+                echo -e "  -> ${C_YELLOW}${cmd}${C_RESET}"
+            done
+            echo
+            echo -e "  Then restart your PHP-FPM service (e.g. ${C_CYAN}systemctl restart php*-fpm${C_RESET} or ${C_CYAN}service php-fpm restart${C_RESET})."
+        fi
+        echo -e "${C_CYAN}========================================================================${C_RESET}"
+    else
+        echo -e "${C_GREEN}✔ All PHP runtimes on this server are protected.${C_RESET}"
+        echo -e "${C_CYAN}========================================================================${C_RESET}"
+    fi
+fi
+
+# Exit code: 0 if all safe/patched, 1 if vulnerable, 2 if mitigated
+if [ "$VULN_COUNT" -gt 0 ]; then
+    exit 1
+elif [ "$MITIGATED_COUNT" -gt 0 ]; then
+    exit 2
+else
+    exit 0
+fi
