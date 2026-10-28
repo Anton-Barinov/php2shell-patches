@@ -58,31 +58,31 @@ show_help() {
 php2shell-check — CVE-2026-109618, CVE-2026-109619 & CVE-2026-115560 Audit Tool (v${VERSION})
 Repository: ${REPO_URL}
 
-Использование:
-  ./php2shell-check [ОПЦИИ]
+Usage:
+  ./php2shell-check [OPTIONS]
 
-Опции:
-  -a, --all             Глубокое сканирование файловой системы на скрытые бинарники PHP
-  -f, --fix-config      Сгенерировать и вывести команду для аварийного отключения upload_progress
-  -u, --url <URL>       Провести внешний неразрушающий аудит веб-сайта
-  -j, --json            Вывести результат в формате JSON (для CI/CD и Zabbix/Prometheus)
-  -q, --quiet           Выводить только критические ошибки и итоговый код возврата
-  -v, --version         Показать версию утилиты
-  -h, --help            Показать эту справку
+Options:
+  -a, --all             Deep filesystem scan for hidden/custom PHP binaries
+  -f, --fix-config      Generate emergency config commands to disable upload_progress
+  -u, --url <URL>       Perform non-destructive external web audit against remote site
+  -j, --json            Output results in JSON format (for CI/CD, SIEM & monitoring)
+  -q, --quiet           Quiet mode (output only critical errors and final exit code)
+  -v, --version         Show utility version
+  -h, --help            Show this help message
 
-Коды возврата (Exit Codes):
-  0 - Все экземпляры PHP безопасны (SAFE или PATCHED)
-  1 - Обнаружен хотя бы один уязвимый экземпляр (CRITICAL: VULNERABLE)
-  2 - Обнаружено частичное смягчение (MITIGATED)
+Exit Codes:
+  0 - All PHP instances are safe (SAFE or PATCHED)
+  1 - At least one vulnerable instance found (CRITICAL: VULNERABLE)
+  2 - Partial mitigation detected (MITIGATED)
 
-Примеры:
-  # Экспресс-проверка сервера в одну строку:
+Examples:
+  # One-liner quick server audit:
   curl -fsSL https://raw.githubusercontent.com/Anton-Barinov/php2shell-patches/main/php2shell-check | sudo bash
 
-  # Полный аудит с генерацией команд устранения:
+  # Full audit with remediation command generation:
   sudo ./php2shell-check -a -f
 
-  # Безопасный удаленный тест сайта:
+  # Safe external remote web test:
   ./php2shell-check -u https://example.com/
 EOF
 }
@@ -100,7 +100,7 @@ while [ $# -gt 0 ]; do
             ;;
         -u|--url)
             if [ -z "${2:-}" ]; then
-                echo "Ошибка: опция --url требует аргумент URL" >&2
+                echo "Error: option --url requires a target URL argument" >&2
                 exit 1
             fi
             OPT_URL="$2"
@@ -123,7 +123,7 @@ while [ $# -gt 0 ]; do
             exit 0
             ;;
         *)
-            echo "Неизвестная опция: $1 (используйте --help для справки)" >&2
+            echo "Unknown option: $1 (use --help for usage)" >&2
             exit 1
             ;;
     esac
@@ -505,7 +505,7 @@ run_remote_audit() {
     local target_url="$OPT_URL"
 
     if ! command -v curl >/dev/null 2>&1; then
-        echo "Ошибка: для удаленного режима требуется утилита curl" >&2
+        echo "Error: remote audit mode requires 'curl' utility" >&2
         exit 1
     fi
 
@@ -531,7 +531,7 @@ run_remote_audit() {
         if [ "$OPT_JSON" -eq 1 ]; then
             echo "{\"error\": \"Failed to connect to target URL: $target_url\"}"
         else
-            echo -e "${C_RED}[!] Ошибка: Не удалось установить соединение с $target_url${C_RESET}"
+            echo -e "${C_RED}[!] Error: Failed to establish connection to $target_url${C_RESET}"
         fi
         exit 1
     fi
@@ -702,8 +702,8 @@ fi
 
 # Check UID
 if [ "$(id -u 2>/dev/null || echo 1000)" -ne 0 ] && [ "$OPT_QUIET" -eq 0 ] && [ "$OPT_JSON" -eq 0 ]; then
-    echo -e "${C_YELLOW}[!] Внимание: Скрипт запущен не от пользователя root (uid=$(id -u)).${C_RESET}"
-    echo -e "    Для полного аудита FPM пулов и системных директорий запустите через sudo.\n"
+    echo -e "${C_YELLOW}[!] Warning: Running as non-root user (uid=$(id -u)).${C_RESET}"
+    echo -e "    For complete audit of FPM pools and system directories, rerun with sudo.\n"
 fi
 
 WEB_SERVER=$(detect_web_server)
