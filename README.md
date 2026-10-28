@@ -18,17 +18,17 @@ HestiaCP / VestaCP / cPanel host still running old PHP.
 
 ---
 
-## 🔍 Экспресс-проверка уязвимости сервера (Audit Script)
+## 🔍 Quick Server Vulnerability Audit (`php2shell-check`)
 
-Вы можете проверить свои серверы на наличие уязвимости и статус наложения патчей в одну строчку:
+Audit your servers for vulnerability status and verify installed patches with a single command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Anton-Barinov/php2shell-patches/main/php2shell-check | sudo bash
 ```
 
-Утилита автоматически просканирует систему (Debian/Ubuntu/CentOS/AlmaLinux/aaPanel/HestiaCP/Plesk), проверит бинарники PHP (CLI, FPM, mod_php), определит наличие бэкпортов и подскажет готовые команды для устранения угрозы.
+The zero-dependency CLI utility automatically discovers all installed PHP runtimes (CLI, FPM pools, Apache `mod_php`), detects control panel multi-PHP stacks (aaPanel, HestiaCP, Plesk, cPanel, Remi), inspects active configurations and patch signatures, and provides clear remediation steps.
 
-Для подробных опций (глубокий поиск, безопасная удаленная проверка URL, вывод в JSON для Zabbix/Prometheus):
+For advanced options (deep filesystem scan, non-destructive remote URL probe, JSON export for SIEM/Zabbix/Prometheus):
 ```bash
 chmod +x php2shell-check
 ./php2shell-check --help
