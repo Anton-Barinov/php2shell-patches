@@ -29,9 +29,10 @@ fi
 CURL=(curl -sS --max-time 30)
 [ -n "$HOSTHDR" ] && CURL+=(-H "Host: $HOSTHDR")
 
-pass=0; fail=0
+pass=0; fail=0; unknown=0
 ok()   { echo "  PASS - $1"; pass=$((pass+1)); }
 bad()  { echo "  FAIL - $1"; fail=$((fail+1)); }
+uncertain() { unknown=$((unknown+1)); echo "  UNKNOWN - $1"; }
 info() { echo "  info - $1"; }
 
 echo "== CVE-2026-109618 / 109619 ("php2shell") mitigation check =="
@@ -51,7 +52,7 @@ PHPVER=$(echo "$INFO"   | sed -n 's/^php=//p')
 MARKER=$(echo "$INFO"   | sed -n 's/^fix_marker=//p')
 UPROG=$(echo "$INFO"    | sed -n 's/^session.upload_progress.enabled=//p')
 if [ "$MARKER" = "PRESENT" ]; then
-  ok "max_multipart_body_parts directive exists (fix compiled in)"
+  info "multipart limit directive exists; does not establish allocator/session safety"
 else
   info "max_multipart_body_parts not in ini (evaluating behavioural probes 2 and 3)"
 fi
@@ -59,7 +60,7 @@ fi
 if [ -z "$UPROG" ] || [ "$UPROG" = "0" ] || [ "$UPROG" = "Off" ]; then
   ok "session.upload_progress.enabled is off (minimal patch flavor or disabled via ini)"
 else
-  ok "session.upload_progress.enabled is on (enhanced-universal patch flavor active)"
+  uncertain "upload progress enabled; this setting does not prove an enhanced patch"
 fi
 echo
 
@@ -97,13 +98,17 @@ OOMBODY="$(cat "$OOUT")"
 echo "     curl_exit=$RC http_code=$HTTP"
 echo "$OOMBODY" | sed 's/^/     body> /'
 if echo "$OOMBODY" | grep -qi 'Allowed memory size'; then
-  bad "graceful 'Allowed memory size' fatal returned (longjmp path — UNPATCHED behaviour)"
+  uncertain "graceful 'Allowed memory size' fatal returned (verify legacy bailout versus vendor soft-OOM behaviour)"
 elif echo "$OOMBODY" | grep -q 'AFTER_OOM_SHOULD_NOT_PRINT'; then
   bad "execution continued past the OOM loop (unexpected)"
-elif echo "$OOMBODY" | grep -q 'before_oom' || [ "$HTTP" = "502" ] || [ "$HTTP" = "500" ] || [ "$RC" -ne 0 ]; then
-  ok "worker died at the allocation without graceful fatal (patched _exit behavior)"
+elif echo "$OOMBODY" | grep -q 'OOM_PROBE_UNAVAILABLE'; then
+  uncertain "request memory limit could not be set safely"
+elif echo "$OOMBODY" | grep -q 'graceful_shutdown'; then
+  uncertain "graceful shutdown observed; verify vendor soft-OOM fix or legacy bailout"
+elif echo "$OOMBODY" | grep -q 'before_oom'; then
+  uncertain "OOM endpoint entered and response ended; a dropped response alone cannot prove allocator safety"
 else
-  info "inconclusive body; relies on Test 4 to confirm the worker recycled cleanly"
+  uncertain "no OOM entry marker; proxy errors or network failures do not prove a patch"
 fi
 rm -f "$OOUT" "$OERR"
 echo
@@ -127,10 +132,9 @@ fi
 echo
 
 # ---- Summary --------------------------------------------------------------
-echo "== summary: PASS=$pass FAIL=$fail  (PHP $PHPVER) =="
+echo "== summary: PASS=$pass FAIL=$fail UNKNOWN=$unknown  (PHP $PHPVER) =="
 echo "Reminder: delete cvecheck.php from the server when finished."
-if [ "$fail" -eq 0 ]; then
-  exit 0
-else
-  exit 1
-fi
+if [ "$fail" -gt 0 ]; then exit 1; fi
+# This diagnostic does not exercise UAF or serializer object-injection chains.
+echo "Allocator/session security still requires vendor patch provenance or controlled regression tests."
+exit 2

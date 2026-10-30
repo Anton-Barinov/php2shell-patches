@@ -25,9 +25,11 @@ param(
 $ErrorActionPreference = "Stop"
 $script:pass = 0
 $script:fail = 0
+$script:unknown = 0
 
 function Pass($m) { Write-Host "  PASS - $m"; $script:pass++ }
 function Fail($m) { Write-Host "  FAIL - $m"; $script:fail++ }
+function Unknown($m) { Write-Host "  UNKNOWN - $m"; $script:unknown++ }
 function Note($m) { Write-Host "  info - $m" }
 
 $headers = @{}
@@ -85,7 +87,7 @@ $phpver = Get-Field $info "php"
 $marker = Get-Field $info "fix_marker"
 $uprog  = Get-Field $info "session.upload_progress.enabled"
 if ($marker -eq "PRESENT") {
-    Pass "max_multipart_body_parts exists (fix compiled in)"
+    Note "multipart directive exists; this does not establish allocator/session safety"
 } else {
     Note "max_multipart_body_parts not in ini (evaluating behavioural probes 2 and 3)"
 }
@@ -93,7 +95,7 @@ if ($marker -eq "PRESENT") {
 if ([string]::IsNullOrEmpty($uprog) -or $uprog -eq "0" -or $uprog -eq "Off") {
     Pass "session.upload_progress.enabled is off (minimal patch flavor or disabled via ini)"
 } else {
-    Pass "session.upload_progress.enabled is on (enhanced-universal patch flavor active)"
+    Unknown "upload progress enabled; does not prove an enhanced patch"
 }
 Write-Host ""
 
@@ -126,13 +128,15 @@ $oom = $r3.Body
 Write-Host ("     http_code={0} err={1}" -f $r3.Status, $r3.Error)
 ($oom -split "`n") | Where-Object { $_ -ne "" } | ForEach-Object { Write-Host "     body> $_" }
 if ($oom -match "Allowed memory size") {
-    Fail "graceful 'Allowed memory size' fatal returned (longjmp path — UNPATCHED behaviour)"
+    Unknown "graceful 'Allowed memory size' fatal returned (verify legacy bailout versus vendor soft-OOM behaviour)"
 } elseif ($oom -match "AFTER_OOM_SHOULD_NOT_PRINT") {
     Fail "execution continued past the OOM loop (unexpected)"
-} elseif (($oom -match "before_oom") -or ($r3.Status -eq 502) -or ($r3.Status -eq 500)) {
-    Pass "worker died at the allocation with no graceful fatal (patched _exit behavior)"
+} elseif ($oom -match "OOM_PROBE_UNAVAILABLE|graceful_shutdown") {
+    Unknown "OOM limit unavailable or graceful shutdown; verify vendor patch provenance"
+} elseif ($oom -match "before_oom") {
+    Unknown "OOM endpoint entered; response termination alone cannot prove allocator safety"
 } else {
-    Note "inconclusive body; relies on Test 4 to confirm the worker recycled cleanly"
+    Unknown "no OOM entry marker; proxy errors or network failures do not prove a patch"
 }
 Write-Host ""
 
@@ -155,6 +159,8 @@ if ($good -eq 3) {
 Write-Host ""
 
 # ---- Summary --------------------------------------------------------------
-Write-Host "== summary: PASS=$script:pass FAIL=$script:fail  (PHP $phpver) =="
+Write-Host "== summary: PASS=$script:pass FAIL=$script:fail UNKNOWN=$script:unknown  (PHP $phpver) =="
 Write-Host "Reminder: delete cvecheck.php from the server when finished."
-if ($script:fail -eq 0) { exit 0 } else { exit 1 }
+if ($script:fail -gt 0) { exit 1 }
+Write-Host "Allocator/session security requires vendor provenance or controlled regression tests."
+exit 2

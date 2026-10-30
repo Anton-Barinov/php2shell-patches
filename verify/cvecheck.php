@@ -75,11 +75,15 @@ if ($t === 'info') {
        so the client sees the connection close with no graceful
        "Allowed memory size ... exhausted" fatal in the body. */
     @ini_set('memory_limit', '32M');
+    if (ini_get('memory_limit') !== '32M') {
+        echo "OOM_PROBE_UNAVAILABLE\n";
+        exit;
+    }
+    register_shutdown_function(function () { echo "graceful_shutdown\n"; });
     echo "before_oom pid=" . getmypid() . "\n";
     for (ob_start(); ob_get_level(); ) { ob_end_flush(); }
     flush();
-    $a = array();
-    while (true) { $a[] = str_repeat('x', 1048576); }
+    $a = str_repeat('x', 64 * 1024 * 1024);
     echo "AFTER_OOM_SHOULD_NOT_PRINT\n";
 
 } else {

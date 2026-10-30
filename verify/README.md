@@ -7,7 +7,7 @@ Compatible with **all PHP versions from 5.4 up to 8.5** and supports both
 **minimal** and **enhanced-universal** patch flavors.
 
 It is **not an exploit**. It does not attempt code execution. It probes the
-observable behaviour that the patch changes and reports PASS/FAIL. Run it only
+observable behaviour that the patch changes and reports observations and inconclusive results. Run it only
 against systems you are authorised to test.
 
 ## Files
@@ -18,14 +18,14 @@ against systems you are authorised to test.
 | `run-cvecheck.sh` | Driver for Linux/macOS (bash + curl). Prints PASS/FAIL per check. |
 | `run-cvecheck.ps1` | Driver for Windows PowerShell (5.1+ or 7+). |
 
-## What it checks
+## What it observes
 
-| # | Probe | Patched build | Unpatched build |
-|---|---|---|---|
-| 1 | `max_multipart_body_parts` INI / upload progress status | Reports presence and patch flavor (minimal or enhanced-universal) | ABSENT / insecure upload progress on EOL |
-| 2 | POST with 3000 parts | parsed count capped (if `max_multipart_body_parts` active) | all 3000 accepted without limit |
-| 3 | request driven to OOM | worker ends immediately (`_exit(1)`), connection dropped with no graceful fatal in HTTP body (CVE-2026-109618 core fix) | graceful `Allowed memory size … exhausted` fatal (old dangerous `longjmp` path) |
-| 4 | requests after the OOM | all HTTP 200 (no stale state, clean worker recycle — CVE-2026-109619) | may wedge / serve corrupted state |
+The endpoint reports SAPI metadata, multipart field counts, request-local OOM
+behaviour and follow-up availability. None of these observations individually
+proves coverage of the allocator, upload-progress UAF and serializer mismatch.
+An enabled progress setting is not evidence of an enhanced patch. Multipart
+caps may come from older `max_input_vars` protection. A missing error body or
+HTTP 500/502 may originate in a proxy. See [CHECKER.md](CHECKER.md) for verdicts.
 
 ## Usage
 
@@ -52,3 +52,12 @@ against systems you are authorised to test.
    ```bash
    rm /var/www/html/cvecheck.php
    ```
+
+## Interpretation limits
+
+Read [CHECKER.md](CHECKER.md) before interpreting results. Multipart limits, enabled
+upload progress, empty HTTP bodies and proxy errors do not prove a security fix.
+The diagnostic drivers return 1 for an explicit failed probe and 2 when the
+observations still require patch provenance or security regression tests. They
+do not return a blanket security PASS. The OOM probe now verifies its local
+32M limit and uses a single bounded allocation rather than an unbounded loop.

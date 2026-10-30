@@ -28,6 +28,11 @@ curl -fsSL https://raw.githubusercontent.com/Anton-Barinov/php2shell-patches/mai
 
 The zero-dependency CLI utility automatically discovers all installed PHP runtimes (CLI, FPM pools, Apache `mod_php`), detects control panel multi-PHP stacks (aaPanel, HestiaCP, Plesk, cPanel, Remi), inspects active configurations and patch signatures, and provides clear remediation steps.
 
+Scanner verdicts describe evidence, not a complete security certification. Unknown
+binaries, incomplete inspection and HTTP-only observations return exit **2**.
+See [checker evidence and limitations](verify/CHECKER.md), including `--binary`
+and the optional bounded CLI `--probe-oom` check.
+
 For advanced options (deep filesystem scan, non-destructive remote URL probe, JSON export for SIEM/Zabbix/Prometheus):
 ```bash
 chmod +x php2shell-check

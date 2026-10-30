@@ -12,13 +12,13 @@
 #   curl -fsSL https://raw.githubusercontent.com/Anton-Barinov/php2shell-patches/main/php2shell-check | bash
 #
 # Exit codes:
-#   0 - All scanned PHP runtimes are SAFE or PATCHED
-#   1 - At least one runtime is CRITICALLY VULNERABLE
-#   2 - One or more runtimes are PARTIALLY MITIGATED (or warnings)
+#   0 - All scanned runtimes have allocator evidence and upload progress disabled
+#   1 - CLI probe observed legacy OOM without recognized allocator fix evidence
+#   2 - Partial mitigation, unknown evidence, or no runtimes found
 
 set -o pipefail 2>/dev/null || true
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 REPO_URL="https://github.com/Anton-Barinov/php2shell-patches"
 
 # Flags
@@ -27,6 +27,8 @@ OPT_FIX=0
 OPT_JSON=0
 OPT_QUIET=0
 OPT_URL=""
+OPT_BINARY=""
+OPT_PROBE_OOM=0
 
 # Colors (auto-disabled if not a tty or NO_COLOR / JSON mode)
 setup_colors() {
@@ -62,18 +64,20 @@ Usage:
   ./php2shell-check [OPTIONS]
 
 Options:
+      --binary <path>   Inspect one specific executable (CLI, CGI or FPM)
+      --probe-oom       Opt in to a bounded CLI-only allocator behaviour probe
   -a, --all             Deep filesystem scan for hidden/custom PHP binaries
   -f, --fix-config      Generate emergency config commands to disable upload_progress
-  -u, --url <URL>       Perform non-destructive external web audit against remote site
+  -u, --url <URL>       Observe HTTP response (cannot establish security; returns exit 2)
   -j, --json            Output results in JSON format (for CI/CD, SIEM & monitoring)
   -q, --quiet           Quiet mode (output only critical errors and final exit code)
   -v, --version         Show utility version
   -h, --help            Show this help message
 
 Exit Codes:
-  0 - All PHP instances are safe (SAFE or PATCHED)
-  1 - At least one vulnerable instance found (CRITICAL: VULNERABLE)
-  2 - Partial mitigation detected (MITIGATED)
+  0 - Every discovered runtime has allocator evidence and upload progress disabled
+  1 - CLI probe observed legacy OOM without recognized allocator fix evidence
+  2 - Partial mitigation, unknown evidence, or no runtimes found
 
 Examples:
   # One-liner quick server audit:
@@ -90,6 +94,10 @@ EOF
 # Parse command line options
 while [ $# -gt 0 ]; do
     case "$1" in
+        --binary)
+            [ -n "${2:-}" ] && [ -x "$2" ] || { echo "--binary requires an executable path" >&2; exit 2; }
+            OPT_BINARY="$2"; shift 2 ;;
+        --probe-oom) OPT_PROBE_OOM=1; shift ;;
         -a|--all)
             OPT_ALL=1
             shift
@@ -225,8 +233,12 @@ discover_php_binaries() {
     local candidates=()
     local seen=()
 
+    if [ -n "$OPT_BINARY" ]; then
+        resolve_path "$OPT_BINARY"
+        return
+    fi
     # 1. Standard PATH / system locations
-    for p in /usr/bin/php* /usr/local/bin/php* /usr/sbin/php-fpm* /usr/local/sbin/php-fpm* /opt/php*/bin/php*; do
+    for p in /usr/bin/php* /usr/local/bin/php* /usr/sbin/php-fpm* /usr/local/sbin/php-fpm* /opt/php*/bin/php* /opt/php*/sbin/php-fpm* /opt/fphp*/bin/php* /opt/fphp*/sbin/php-fpm* /opt/alt/php*/usr/bin/php* /opt/alt/php*/usr/sbin/php-fpm* /opt/rh/rh-php*/root/usr/bin/php* /opt/rh/rh-php*/root/usr/sbin/php-fpm* /usr/local/php*/bin/php* /usr/local/php*/sbin/php-fpm* /usr/local/lsws/lsphp*/bin/*php* /opt/keyhelp/php/*/bin/php* /opt/keyhelp/php/*/sbin/php-fpm* /opt/homebrew/bin/php /usr/local/hestia/php/bin/php /usr/local/hestia/php/sbin/php-fpm; do
         if [ -f "$p" ] && [ -x "$p" ]; then
             candidates+=("$p")
         fi
@@ -324,13 +336,26 @@ discover_php_binaries() {
     printf '%s\n' "${deduped[@]}"
 }
 
+# Consume the entire match stream (grep -q can cause SIGPIPE with pipefail).
+binary_has() { LC_ALL=C grep -a -E "$2" "$1" >/dev/null 2>&1; }
+
+json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
 # Audit a single PHP runtime instance
 audit_php_runtime() {
     local bin="$1"
 
     # 1. Version extraction
     local v_output
-    v_output=$("$bin" -v 2>&1 | head -n 1 || true)
+    v_output=$("$bin" -n -v 2>&1 || true)
     local raw_ver
     raw_ver=$(echo "$v_output" | sed -n 's/.*PHP \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
     if [ -z "$raw_ver" ]; then
@@ -358,144 +383,93 @@ audit_php_runtime() {
             ;;
     esac
 
-    # 2. Check for active FPM process matching this version
-    local fpm_active="NO"
-    local fpm_listen=""
-    local fpm_conf=""
-    if command -v ps >/dev/null 2>&1; then
-        local proc_match
-        proc_match=$(ps aux 2>/dev/null | grep -E "php-fpm.*(${branch}|${major}${minor})" | grep -v "grep" | head -n 1 || true)
-        if [ -n "$proc_match" ]; then
-            fpm_active="YES"
-            # Extract config file from ps
-            fpm_conf=$(echo "$proc_match" | sed -n 's/.*master process (\(.*\))/\1/p')
-            if [ -n "$fpm_conf" ] && [ -f "$fpm_conf" ]; then
-                fpm_listen=$(grep -E '^\s*listen\s*=' "$fpm_conf" 2>/dev/null | head -n 1 | awk '{print $NF}' || true)
-                if [ -z "$fpm_listen" ]; then
-                    # Check pool.d directory
-                    local conf_dir
-                    conf_dir=$(dirname "$fpm_conf")
-                    if [ -d "$conf_dir/pool.d" ]; then
-                        fpm_listen=$(grep -E '^\s*listen\s*=' "$conf_dir/pool.d"/*.conf 2>/dev/null | head -n 1 | awk -F'=' '{print $2}' | xargs || true)
-                    fi
-                fi
+    # Match the actual executable on Linux; version-number matches in ps
+    # can accidentally select an unrelated process or another PHP build.
+    local fpm_active="NO" fpm_listen="" fpm_conf=""
+    if [ "$sapi" = "fpm" ]; then
+        local process_exe
+        for process_exe in /proc/[0-9]*/exe; do
+            if [ "$bin" -ef "$process_exe" ] 2>/dev/null; then
+                fpm_active="YES"
+                break
             fi
-        fi
+        done
     fi
 
-    # 3. Find loaded php.ini
-    local ini_path
-    ini_path=$("$bin" --ini 2>/dev/null | grep -E "Loaded Configuration File" | awk -F': ' '{print $2}' | xargs || true)
-    if [ -z "$ini_path" ] || [ "$ini_path" = "(none)" ]; then
-        ini_path="none"
-    fi
+    # Read configuration using -i: FPM/CGI do not support CLI -r/--ini.
+    # These are SAPI defaults, not the effective settings of every FPM pool.
+    local php_info ini_path upload_progress_val upload_progress
+    php_info=$("$bin" -i 2>/dev/null || true)
+    ini_path=$(printf '%s\n' "$php_info" | sed -n 's/^Loaded Configuration File => //p' | head -n 1)
+    ini_path="${ini_path:-none}"
+    upload_progress_val=$(printf '%s\n' "$php_info" | sed -n 's/^session.upload_progress.enabled => \([^ ]*\).*/\1/p' | head -n 1)
+    upload_progress="UNKNOWN"
+    case "$upload_progress_val" in
+        0|Off|off) upload_progress="DISABLED" ;;
+        1|On|on) upload_progress="ENABLED" ;;
+    esac
 
-    # 4. Check session.upload_progress.enabled
-    local upload_progress_val
-    upload_progress_val=$("$bin" -r "echo ini_get('session.upload_progress.enabled');" 2>/dev/null || true)
-    local upload_progress="ENABLED"
-    if [ "$upload_progress_val" = "0" ] || [ "$upload_progress_val" = "" ] || [ "$upload_progress_val" = "Off" ]; then
-        upload_progress="DISABLED"
-    fi
-
-    # Check FPM pool for admin_value overrides
-    local pool_override=0
-    if [ -n "$fpm_conf" ]; then
-        local conf_dir
-        conf_dir=$(dirname "$fpm_conf")
-        if grep -rq "php_admin_value\[session.upload_progress.enabled\]\s*=\s*\(Off\|0\)" "$fpm_conf" "$conf_dir/pool.d" 2>/dev/null; then
-            upload_progress="DISABLED"
-            pool_override=1
-        fi
-    fi
-
-    # 5. Patch detection
-    local patch_applied="NO"
+    # Fingerprints are evidence, not proof of all CVEs being fixed.
+    # Multipart limits predate this incident and session-only fixes do not
+    # establish allocator safety. Absence also cannot disprove vendor backports.
+    local allocator="NO" session_guard="NO" patch_applied="NO"
     local patch_flavor="none"
+    if binary_has "$bin" 'zend_mm_safe_error_ex'; then
+        allocator="YES"; patch_flavor="exit_allocator_fingerprint"
+    elif binary_has "$bin" 'zend_handle_delayed_oom|memory_hard_limit_percent'; then
+        allocator="YES"; patch_flavor="soft_oom_fingerprint"
+    fi
+    if binary_has "$bin" '__PHP_Incomplete_Class_Serialized'; then
+        session_guard="YES"
+    fi
+    local probe_result="not_requested"
+    if [ "$OPT_PROBE_OOM" -eq 1 ] && [ "$sapi" = "cli" ]; then
+        local probe_out probe_rc
+        # No system configuration, no extensions, 8M limit and one 32M
+        # allocation. The process has no request data or application hooks.
+        probe_out=$("$bin" -n -d memory_limit=8M -d display_errors=stderr -d log_errors=0 -r 'register_shutdown_function(function () { echo "P2S_SHUTDOWN\n"; }); echo "P2S_BEFORE\n"; str_repeat("x", 32 * 1024 * 1024); echo "P2S_AFTER\n";' 2>&1)
+        probe_rc=$?
+        probe_result="inconclusive"
+        if [ "$probe_rc" -eq 1 ] && [[ "$probe_out" == *P2S_BEFORE* ]] && [[ "$probe_out" == *"Allowed memory size"* ]] && [[ "$probe_out" != *P2S_SHUTDOWN* ]] && [[ "$probe_out" != *P2S_AFTER* ]]; then
+            allocator="YES"; patch_flavor="observed_exit_on_oom"; probe_result="exit_on_oom"
+        elif [[ "$probe_out" == *P2S_SHUTDOWN* ]] && [[ "$probe_out" == *"Allowed memory size"* ]]; then
+            probe_result="graceful_oom"
+        fi
+    fi
+    local upstream="NO"
+    case "$branch" in
+        8.2) version_ge "$raw_ver" 8.2.35 && upstream="YES" ;;
+        8.3) version_ge "$raw_ver" 8.3.36 && upstream="YES" ;;
+        8.4) version_ge "$raw_ver" 8.4.27 && upstream="YES" ;;
+        8.5) version_ge "$raw_ver" 8.5.12 && upstream="YES" ;;
+    esac
 
-    # Signal A: max_multipart_body_parts INI directive (backported to 5.4-8.1 in patched builds)
-    local mmbp
-    mmbp=$("$bin" -n -r "echo ini_get('max_multipart_body_parts') !== false ? '1' : '0';" 2>/dev/null || echo "0")
-    if [ "$mmbp" = "1" ]; then
+    if printf '%s\n' "$v_output" | grep -E 'PHP [0-9]+\.[0-9]+\.[0-9]+(RC|alpha|beta|-dev)' >/dev/null; then
+        upstream="NO"
+    fi
+    local status="UNKNOWN" status_msg
+    status_msg="No conclusive patch evidence. Missing symbols do not prove vulnerability; verify vendor provenance and run controlled SAPI checks."
+    if [ "$raw_ver" = "unknown" ]; then
+        status_msg="Could not read PHP version; inspection failed."
+    elif [ "$upstream" = "YES" ] || [ "$allocator" = "YES" ]; then
         patch_applied="YES"
-        patch_flavor="enhanced_universal"
-    fi
-
-    # Signal B: Unique warning string in rfc1867.c added by CVE-2026-109618 fix
-    if [ "$patch_applied" = "NO" ]; then
-        if grep -a -q "Actual POST length does not match Content-Length" "$bin" 2>/dev/null; then
-            patch_applied="YES"
-            patch_flavor="backport_verified"
-        fi
-    fi
-
-    # Signal C: Allocator hardening symbol
-    if [ "$patch_applied" = "NO" ]; then
-        if grep -a -q "zend_mm_safe_error_ex" "$bin" 2>/dev/null; then
-            patch_applied="YES"
-            patch_flavor="allocator_hardened"
-        fi
-    fi
-
-    # Signal D: Incomplete class marker
-    if [ "$patch_applied" = "NO" ]; then
-        if grep -a -q "incomplete_classes_only" "$bin" 2>/dev/null; then
-            patch_applied="YES"
-            patch_flavor="enhanced_classes_protected"
-        fi
-    fi
-
-    # 6. Status Classification
-    local status="VULNERABLE"
-    local status_msg=""
-
-    # Case 1: Officially patched upstream version
-    if [ "$branch" = "8.2" ] && version_ge "$raw_ver" "8.2.35"; then
-        status="SAFE"
-        if [ "$upload_progress" = "ENABLED" ]; then
-            status_msg="Official release (>= 8.2.35) [Advisory: CVE-2026-115560 pending next release; set session.upload_progress.enabled=Off if using custom serializer]"
+        if [ "$upstream" = "YES" ]; then patch_flavor="upstream_version_evidence"; fi
+        if [ "$upload_progress" = "DISABLED" ]; then
+            status="PATCHED"
+            status_msg="Allocator fix evidence: ${patch_flavor}; upload progress disabled in SAPI defaults. Verify pool and application overrides separately."
         else
-            status_msg="Official release (>= 8.2.35) [Safe: upload_progress disabled, immune to CVE-2026-115560]"
+            status="MITIGATED"
+            status_msg="Allocator fix evidence: ${patch_flavor}; upload progress ${upload_progress}; serializer protection not confirmed (session guard fingerprint: ${session_guard}). Verify CVE-2026-115560 on the actual SAPI."
         fi
-    elif [ "$branch" = "8.3" ] && version_ge "$raw_ver" "8.3.36"; then
-        status="SAFE"
-        if [ "$upload_progress" = "ENABLED" ]; then
-            status_msg="Official release (>= 8.3.36) [Advisory: CVE-2026-115560 pending next release; set session.upload_progress.enabled=Off if using custom serializer]"
-        else
-            status_msg="Official release (>= 8.3.36) [Safe: upload_progress disabled, immune to CVE-2026-115560]"
-        fi
-    elif [ "$branch" = "8.4" ] && version_ge "$raw_ver" "8.4.27"; then
-        status="SAFE"
-        if [ "$upload_progress" = "ENABLED" ]; then
-            status_msg="Official release (>= 8.4.27) [Advisory: CVE-2026-115560 pending next release; set session.upload_progress.enabled=Off if using custom serializer]"
-        else
-            status_msg="Official release (>= 8.4.27) [Safe: upload_progress disabled, immune to CVE-2026-115560]"
-        fi
-    elif [ "$branch" = "8.5" ] && version_ge "$raw_ver" "8.5.12"; then
-        status="SAFE"
-        if [ "$upload_progress" = "ENABLED" ]; then
-            status_msg="Official release (>= 8.5.12) [Advisory: CVE-2026-115560 pending next release; set session.upload_progress.enabled=Off if using custom serializer]"
-        else
-            status_msg="Official release (>= 8.5.12) [Safe: upload_progress disabled, immune to CVE-2026-115560]"
-        fi
-    elif version_ge "$branch" "8.6"; then
-        status="SAFE"
-        status_msg="Upstream release (>= 8.6)"
-    elif version_lt "$branch" "5.4"; then
-        # PHP <= 5.3 is immune (upload progress was introduced in PHP 5.4.0)
-        status="SAFE"
-        status_msg="Not vulnerable (session upload progress was introduced in PHP 5.4.0)"
-    elif [ "$patch_applied" = "YES" ]; then
-        status="PATCHED"
-        status_msg="Backported patch verified (${patch_flavor}) [Safe: CVE-2026-109618, CVE-2026-109619, CVE-2026-115560]"
     elif [ "$upload_progress" = "DISABLED" ]; then
         status="MITIGATED"
-        status_msg="Partially mitigated via ini (session.upload_progress.enabled = Off protects against CVE-2026-109619 & CVE-2026-115560). Patching binary is strongly recommended."
-    else
-        status="VULNERABLE"
-        status_msg="CRITICAL: VULNERABLE TO RCE (CVE-2026-109618 / CVE-2026-109619 / CVE-2026-115560)"
+        status_msg="Upload progress disabled in SAPI defaults; allocator fix unverified. This is partial mitigation only."
     fi
 
+    if [ "$probe_result" = "graceful_oom" ] && [ "$allocator" = "NO" ] && [ "$upstream" = "NO" ]; then
+        status="VULNERABLE"
+        status_msg="Observed graceful OOM shutdown with no known allocator-fix evidence. Legacy bailout behaviour requires remediation; this is not an RCE exploit test."
+    fi
     # Output structured data
     echo "${bin}|${raw_ver}|${branch}|${sapi}|${fpm_active}|${fpm_listen}|${ini_path}|${upload_progress}|${patch_applied}|${status}|${status_msg}"
 }
@@ -522,14 +496,14 @@ run_remote_audit() {
     local header_file body_file
     header_file=$(mktemp 2>/dev/null || mktemp -t 'p2s_hdr')
     body_file=$(mktemp 2>/dev/null || mktemp -t 'p2s_body')
-    trap 'rm -f "$header_file" "$body_file"' EXIT
+    trap 'rm -f "$header_file" "$body_file" "${post_body:-}" "${probe_hdr:-}"' EXIT
 
     local http_code
-    http_code=$(curl -sS -L --max-time 15 -D "$header_file" -o "$body_file" -w "%{http_code}" "$target_url" 2>/dev/null || echo "000")
+    http_code=$(curl -sS -L --max-time 15 -D "$header_file" -o "$body_file" -w "%{http_code}" "$target_url" 2>/dev/null || true)
 
-    if [ "$http_code" = "000" ]; then
+    if [ -z "$http_code" ] || [ "$http_code" = "000" ]; then
         if [ "$OPT_JSON" -eq 1 ]; then
-            echo "{\"error\": \"Failed to connect to target URL: $target_url\"}"
+            echo "{\"error\": \"Failed to connect to target URL: $(json_escape "$target_url")\"}"
         else
             echo -e "${C_RED}[!] Error: Failed to establish connection to $target_url${C_RESET}"
         fi
@@ -580,64 +554,18 @@ run_remote_audit() {
 
     rm -f "$post_body" "$probe_hdr"
 
-    # Analyze remote verdict
+    # Headers, cookies, WAFs and ordinary multipart responses cannot prove
+    # allocator or session serializer safety, including on backported builds.
     local remote_status="INCONCLUSIVE"
-    local remote_details=""
-
+    local remote_details="HTTP observations cannot confirm these CVEs or effective PHP configuration. Use local inspection and the token-gated SAPI validator."
     local parsed_ver=""
-    if [ -n "$powered_by" ]; then
-        parsed_ver=$(echo "$powered_by" | sed -n 's/.*PHP\/\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
-    fi
-
-    if [ -n "$parsed_ver" ]; then
-        local p_major p_minor p_branch
-        p_major=$(echo "$parsed_ver" | cut -d. -f1)
-        p_minor=$(echo "$parsed_ver" | cut -d. -f2)
-        p_branch="${p_major}.${p_minor}"
-
-        if [ "$p_branch" = "8.2" ] && version_ge "$parsed_ver" "8.2.35"; then
-            remote_status="SAFE"
-            remote_details="Upstream safe release reported (PHP $parsed_ver >= 8.2.35)"
-        elif [ "$p_branch" = "8.3" ] && version_ge "$parsed_ver" "8.3.36"; then
-            remote_status="SAFE"
-            remote_details="Upstream safe release reported (PHP $parsed_ver >= 8.3.36)"
-        elif [ "$p_branch" = "8.4" ] && version_ge "$parsed_ver" "8.4.27"; then
-            remote_status="SAFE"
-            remote_details="Upstream safe release reported (PHP $parsed_ver >= 8.4.27)"
-        elif [ "$p_branch" = "8.5" ] && version_ge "$parsed_ver" "8.5.12"; then
-            remote_status="SAFE"
-            remote_details="Upstream safe release reported (PHP $parsed_ver >= 8.5.12)"
-        elif version_ge "$p_branch" "8.6"; then
-            remote_status="SAFE"
-            remote_details="Upstream release (PHP $parsed_ver >= 8.6)"
-        elif version_lt "$p_branch" "5.4"; then
-            remote_status="SAFE"
-            remote_details="Immune (PHP $parsed_ver <= 5.3 lacks upload_progress)"
-        else
-            # EOL Version in vulnerable window
-            if [ -n "$probe_cookie" ] && [ -z "$set_cookie" ]; then
-                remote_status="VULNERABLE"
-                remote_details="EOL PHP $parsed_ver detected and upload_progress handler actively initializes sessions!"
-            else
-                remote_status="MITIGATED"
-                remote_details="EOL PHP $parsed_ver detected, but upload progress is disabled or not initializing sessions."
-            fi
-        fi
-    else
-        # No X-Powered-By
-        if [ -n "$probe_cookie" ] && [ -z "$set_cookie" ]; then
-            remote_status="VULNERABLE"
-            remote_details="PHP upload progress tracking actively initializes sessions upon multipart upload."
-        elif [ "$waf_detected" != "NONE" ]; then
-            remote_status="SAFE"
-            remote_details="Traffic is protected behind $waf_detected; headers are masked."
-        else
-            remote_status="SAFE"
-            remote_details="No vulnerable PHP signatures exposed in public response headers."
-        fi
-    fi
+    parsed_ver=$(printf '%s\n' "$powered_by" | sed -n 's/.*PHP\/\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
+    [ -n "$parsed_ver" ] && remote_details="Reported PHP ${parsed_ver}; version headers cannot verify vendor backports or serializer protection. Run local and controlled SAPI checks."
 
     # Output
+    for field in target_url server_hdr powered_by; do
+        printf -v "$field" '%s' "$(json_escape "${!field}")"
+    done
     if [ "$OPT_JSON" -eq 1 ]; then
         cat <<EOF
 {
@@ -666,8 +594,11 @@ EOF
                 echo -e "    Result:  [ ${C_YELLOW}WARNING: PARTIALLY MITIGATED${C_RESET} ]"
                 echo -e "    Details: ${remote_details}"
                 ;;
+            UNKNOWN)
+                echo -e "    - Status: UNKNOWN: ${status_msg}"
+                ;;
             VULNERABLE)
-                echo -e "    Result:  [ ${C_RED}!! CRITICAL: VULNERABLE TO RCE !!${C_RESET} ]"
+                echo -e "    Result:  [ ${C_RED}!! LEGACY OOM BEHAVIOUR OBSERVED !!${C_RESET} ]"
                 echo -e "    Details: ${remote_details}"
                 echo
                 echo -e "${C_BOLD}RECOMMENDED ACTION:${C_RESET}"
@@ -687,7 +618,7 @@ EOF
     elif [ "$remote_status" = "MITIGATED" ]; then
         exit 2
     else
-        exit 0
+        exit 2
     fi
 }
 
@@ -722,6 +653,7 @@ SAFE_COUNT=0
 PATCHED_COUNT=0
 MITIGATED_COUNT=0
 VULN_COUNT=0
+UNKNOWN_COUNT=0
 
 AUDIT_RESULTS=()
 FIX_COMMANDS=()
@@ -736,6 +668,7 @@ for bin in "${PHP_BINS[@]}"; do
         SAFE)       SAFE_COUNT=$((SAFE_COUNT + 1)) ;;
         PATCHED)    PATCHED_COUNT=$((PATCHED_COUNT + 1)) ;;
         MITIGATED)  MITIGATED_COUNT=$((MITIGATED_COUNT + 1)) ;;
+        UNKNOWN) UNKNOWN_COUNT=$((UNKNOWN_COUNT + 1)) ;;
         VULNERABLE) VULN_COUNT=$((VULN_COUNT + 1)) ;;
     esac
 
@@ -764,6 +697,7 @@ if [ "$OPT_JSON" -eq 1 ]; then
     "safe": ${SAFE_COUNT},
     "patched": ${PATCHED_COUNT},
     "mitigated": ${MITIGATED_COUNT},
+    "unknown": ${UNKNOWN_COUNT},
     "vulnerable": ${VULN_COUNT}
   },
   "installations": [
@@ -788,6 +722,9 @@ EOF
             comma=""
         fi
 
+        for field in bin ver branch sapi fpm_listen ini_path status_msg; do
+            printf -v "$field" '%s' "$(json_escape "${!field}")"
+        done
         cat <<EOF
     {
       "path": "$bin",
@@ -797,7 +734,7 @@ EOF
       "fpm_active": $([ "$fpm_active" = "YES" ] && echo "true" || echo "false"),
       "fpm_listen": $([ -n "$fpm_listen" ] && echo "\"$fpm_listen\"" || echo "null"),
       "ini_path": "$ini_path",
-      "upload_progress": $([ "$upload_prog" = "ENABLED" ] && echo "true" || echo "false"),
+      "upload_progress": $(case "$upload_prog" in ENABLED) echo true ;; DISABLED) echo false ;; *) echo null ;; esac),
       "patch_applied": $([ "$patch_app" = "YES" ] && echo "true" || echo "false"),
       "status": "$status",
       "details": "$status_msg"
@@ -811,7 +748,7 @@ EOF
     # Exit with code
     if [ "$VULN_COUNT" -gt 0 ]; then
         exit 1
-    elif [ "$MITIGATED_COUNT" -gt 0 ]; then
+    elif [ "$MITIGATED_COUNT" -gt 0 ] || [ "$UNKNOWN_COUNT" -gt 0 ] || [ "$TOTAL_COUNT" -eq 0 ]; then
         exit 2
     else
         exit 0
@@ -858,7 +795,7 @@ if [ "$OPT_QUIET" -eq 0 ]; then
 
         echo -e "[${idx}] ${C_BOLD}${bin}${C_RESET}${C_GRAY}${fpm_note}${C_RESET}"
         echo -e "    - Version:         ${ver}"
-        echo -e "    - upload_progress: $([ "$upload_prog" = "ENABLED" ] && echo -e "${C_RED}ENABLED (On)${C_RESET}" || echo -e "${C_GREEN}DISABLED (Off)${C_RESET}")"
+        echo "    - upload_progress: ${upload_prog} (SAPI defaults; pool overrides unverified)"
         echo -e "    - Patch applied:   $([ "$patch_app" = "YES" ] && echo -e "${C_GREEN}YES${C_RESET}" || echo "NO")"
         if [ "$ini_path" != "none" ]; then
             echo -e "    - Loaded ini:      ${ini_path}"
@@ -875,8 +812,11 @@ if [ "$OPT_QUIET" -eq 0 ]; then
                 echo -e "    - Status:          [ ${C_YELLOW}WARNING: PARTIALLY MITIGATED${C_RESET} ]"
                 echo -e "                       ${C_GRAY}${status_msg}${C_RESET}"
                 ;;
+            UNKNOWN)
+                echo -e "    - Status: UNKNOWN: ${status_msg}"
+                ;;
             VULNERABLE)
-                echo -e "    - Status:          [ ${C_RED}!! CRITICAL: VULNERABLE TO RCE !!${C_RESET} ]"
+                echo -e "    - Status:          [ ${C_RED}!! LEGACY OOM BEHAVIOUR OBSERVED !!${C_RESET} ]"
                 echo -e "                       ${C_RED}${status_msg}${C_RESET}"
                 ;;
         esac
@@ -887,11 +827,12 @@ if [ "$OPT_QUIET" -eq 0 ]; then
     echo -e "${C_BOLD}SUMMARY:${C_RESET}"
     echo -e "  Total installations scanned: ${C_BOLD}${TOTAL_COUNT}${C_RESET}"
     echo -e "  Safe / Patched:              ${C_GREEN}$((SAFE_COUNT + PATCHED_COUNT))${C_RESET}"
-    echo -e "  Mitigated by config:         ${C_YELLOW}${MITIGATED_COUNT}${C_RESET}"
+    echo "  Unknown / unverified:       ${UNKNOWN_COUNT}"
+    echo -e "  Partially verified:         ${C_YELLOW}${MITIGATED_COUNT}${C_RESET}"
     echo -e "  Critically Vulnerable:       $([ "$VULN_COUNT" -gt 0 ] && echo -e "${C_RED}${VULN_COUNT}${C_RESET}" || echo -e "${C_GREEN}0${C_RESET}")"
     echo
 
-    if [ "$VULN_COUNT" -gt 0 ] || [ "$MITIGATED_COUNT" -gt 0 ] || [ "$OPT_FIX" -eq 1 ]; then
+    if [ "$VULN_COUNT" -gt 0 ] || [ "$MITIGATED_COUNT" -gt 0 ] || [ "$UNKNOWN_COUNT" -gt 0 ] || [ "$TOTAL_COUNT" -eq 0 ] || [ "$OPT_FIX" -eq 1 ]; then
         echo -e "${C_BOLD}ACTION REQUIRED / REMEDIATION:${C_RESET}"
 
         # aaPanel hint
@@ -917,7 +858,7 @@ if [ "$OPT_QUIET" -eq 0 ]; then
         fi
         echo -e "${C_CYAN}========================================================================${C_RESET}"
     else
-        echo -e "${C_GREEN}✔ All PHP runtimes on this server are protected.${C_RESET}"
+        echo -e "${C_GREEN}All discovered runtimes have patch evidence; verify effective web SAPI settings.${C_RESET}"
         echo -e "${C_CYAN}========================================================================${C_RESET}"
     fi
 fi
@@ -925,7 +866,7 @@ fi
 # Exit code: 0 if all safe/patched, 1 if vulnerable, 2 if mitigated
 if [ "$VULN_COUNT" -gt 0 ]; then
     exit 1
-elif [ "$MITIGATED_COUNT" -gt 0 ]; then
+elif [ "$MITIGATED_COUNT" -gt 0 ] || [ "$UNKNOWN_COUNT" -gt 0 ] || [ "$TOTAL_COUNT" -eq 0 ]; then
     exit 2
 else
     exit 0
