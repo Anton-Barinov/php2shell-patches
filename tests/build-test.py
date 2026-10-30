@@ -26,6 +26,7 @@ class BuildTests(unittest.TestCase):
         self.env = dict(os.environ, PATH=str(self.tools) + os.pathsep + os.environ['PATH'], STATE=str(self.work))
         self.php = self.work / 'fake-php'
         self.php.write_text('''#!/bin/bash
+case "$*" in *stream_get_transports*) printf 'P2S_TRANSPORTS:%s\\n' "${TRANSPORTS-ssl,tls}"; exit "${TRANSPORT_RC:-0}" ;; esac
 case "${OOM_MODE:-pass}" in
  pass) echo OOM_BEFORE; echo 'Allowed memory size exhausted' >&2; exit 1 ;;
  graceful) printf 'OOM_BEFORE\\nOOM_SHUTDOWN\\n'; echo 'Allowed memory size exhausted' >&2; exit 255 ;;
@@ -121,8 +122,10 @@ for arg; do case "$arg" in --prefix=*) printf '%s' "${arg#*=}" > "$STATE/prefix"
         sandbox = self.work / 'source'
         (sandbox / 'sapi/cli').mkdir(parents=True)
         (sandbox / 'sapi/cli/php').symlink_to(self.php)
+        baseline = self.work / 'transports'
+        baseline.write_text('P2S_TRANSPORTS:ssl,tls\n')
         for mode, expected in [('pass', 0), ('graceful', 1), ('empty', 1)]:
-            result = subprocess.run(['bash', '-eu', '-c', block], cwd=sandbox, env=dict(self.env, HERE=str(ROOT / 'deploy'), PATCH='test.patch', OOM_MODE=mode), capture_output=True)
+            result = subprocess.run(['bash', '-eu', '-c', block], cwd=sandbox, env=dict(self.env, HERE=str(ROOT / 'deploy'), PATCH='test.patch', OOM_MODE=mode, TRANSPORT_BASELINE=str(baseline)), capture_output=True)
             self.assertEqual(result.returncode, expected, result.stderr)
 
     def aapanel_script(self):
@@ -171,6 +174,61 @@ for arg; do case "$arg" in --prefix=*) printf '%s' "${arg#*=}" > "$STATE/prefix"
         self.assertEqual(result.returncode, 1)
         self.assertTrue((prefix / 'sentinel').exists())
         self.assertFalse(Path(str(prefix) + '.failed').exists())
+
+    def test_transport_guard_rejects_losses(self):
+        baseline = self.work / 'transports'
+        helper = str(ROOT / 'build/verify-transports.sh')
+        result = subprocess.run([helper, 'snapshot', str(self.php), str(baseline)], env=self.env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for transports, expected in [('ssl,tls', 0), ('ssl', 1), ('tls', 1), ('', 1), ('tcp', 1)]:
+            with self.subTest(transports=transports):
+                result = subprocess.run([helper, 'check', str(self.php), str(baseline)], env=dict(self.env, TRANSPORTS=transports), capture_output=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_transport_probe_errors_do_not_mean_empty_list(self):
+        baseline = self.work / 'transports'
+        helper = str(ROOT / 'build/verify-transports.sh')
+        result = subprocess.run([helper, 'snapshot', str(self.php), str(baseline)], env=dict(self.env, TRANSPORT_RC='1'), capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(baseline.exists())
+
+    def test_absent_transport_baseline_is_not_accepted(self):
+        result = subprocess.run([str(ROOT / 'build/verify-transports.sh'), 'check', str(self.php), str(self.work / 'absent')], env=self.env, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_aapanel_tls_loss_aborts_before_stopping_service(self):
+        script, _ = self.aapanel_script()
+        prefix = self.work / 'panel/php/74'
+        old_php = prefix / 'bin/php'
+        old_php.write_text('#!/bin/sh\necho P2S_TRANSPORTS:ssl,tls\n')
+        source_dir = self.work / 'built'
+        (source_dir / 'sapi/cli').mkdir(parents=True)
+        (source_dir / 'sapi/fpm').mkdir(parents=True)
+        for binary in [source_dir / 'sapi/cli/php', source_dir / 'sapi/fpm/php-fpm']:
+            binary.write_text('#!/bin/sh\necho P2S_TRANSPORTS:ssl\n')
+            binary.chmod(0o755)
+        init = self.work / 'init'
+        init.write_text('#!/bin/sh\nexit 0\n')
+        init.chmod(0o755)
+        log_dir = self.work / 'logs'
+        log_dir.mkdir()
+        source = script.read_text()
+        install = source[source.index('do_install() {'):source.index('do_rollback() {')]
+        functions = 'is_patched() { return 0; }; fpm_running() { return 0; }; info() { :; }; die() { echo "$*"; exit 1; }; fpm_stop() { touch "$STATE/stopped"; }; '
+        env = dict(self.env, PREFIX=str(prefix), SRC_DIR=str(source_dir), INIT=str(init), LOG_DIR=str(log_dir), VER='74', REPO_ROOT=str(ROOT))
+        result = subprocess.run(['bash', '-u', '-c', functions + install + '\ndo_install'], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('installation aborted', result.stdout)
+        self.assertFalse((self.work / 'stopped').exists())
+
+    def test_intentionally_absent_tls_does_not_block_replacement(self):
+        baseline = self.work / 'no-tls'
+        helper = str(ROOT / 'build/verify-transports.sh')
+        env = dict(self.env, TRANSPORTS='')
+        snapshot = subprocess.run([helper, 'snapshot', str(self.php), str(baseline)], env=env, capture_output=True)
+        self.assertEqual(snapshot.returncode, 0, snapshot.stderr)
+        result = subprocess.run([helper, 'check', str(self.php), str(baseline)], env=env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == '__main__':

@@ -246,6 +246,10 @@ do_install() {
     backup="/www/server/php/$VER.bak-$stamp"
     fpm_running && was_running=1
 
+    local transport_baseline="$LOG_DIR/transports-before-$VER.txt"
+    "$REPO_ROOT/build/verify-transports.sh" snapshot "$PREFIX/bin/php" "$transport_baseline" || die "Could not record stream transports"
+    "$REPO_ROOT/build/verify-transports.sh" check "$SRC_DIR/sapi/cli/php" "$transport_baseline" || die "Built PHP loses SSL/TLS transports; installation aborted"
+
     # Snapshot baseline modules
     "$PREFIX/bin/php" -m 2>/dev/null | grep -v '^\[' | grep -v '^$' | sort > "$LOG_DIR/modules-before-$VER.txt"
     "$PREFIX/bin/php" -v | head -n1 > "$LOG_DIR/version-before-$VER.txt"
@@ -273,15 +277,6 @@ do_install() {
         exit 1
     fi
 
-    if [ "$was_running" -eq 1 ]; then
-        info "Starting php-fpm-$VER..."
-        if ! fpm_start; then
-            red "php-fpm failed to start. Rolling back..."
-            restore "$backup" "$was_running"
-            exit 1
-        fi
-    fi
-
     # Verification post-install
     local fail=0
     "$PREFIX/bin/php" -m 2>/dev/null | grep -v '^\[' | grep -v '^$' | sort > "$LOG_DIR/modules-after-$VER.txt"
@@ -301,10 +296,24 @@ do_install() {
         fail=1
     fi
 
+    if ! "$REPO_ROOT/build/verify-transports.sh" check "$PREFIX/bin/php" "$transport_baseline"; then
+        red "Verification failed: SSL/TLS transport regression"
+        fail=1
+    fi
+
     if [ "$fail" -eq 1 ]; then
         red "Post-install verification failed. Rolling back..."
         restore "$backup" "$was_running"
         exit 1
+    fi
+
+    if [ "$was_running" -eq 1 ]; then
+        info "Starting php-fpm-$VER..."
+        if ! fpm_start; then
+            red "php-fpm failed to start. Rolling back..."
+            restore "$backup" "$was_running"
+            exit 1
+        fi
     fi
 
     echo

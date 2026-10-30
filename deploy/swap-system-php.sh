@@ -93,6 +93,9 @@ if [ -x "/usr/bin/php$XY" ]; then
   modules_of php"$XY" > "$BASELINE" || true
 fi
 
+TRANSPORT_BASELINE="$BUILD_ROOT/baseline-$XY.transports"
+"$HERE/../build/verify-transports.sh" snapshot "/usr/bin/php$XY" "$TRANSPORT_BASELINE"
+
 rm -rf "$SRC"; mkdir -p "$SRC"
 tar -xJf "php-$VER.tar.xz" -C "$SRC" --strip-components=1
 cd "$SRC"
@@ -215,6 +218,8 @@ fi
 if [ -n "$PATCH" ]; then
   "$HERE/../build/verify-exit-oom.sh" "$(pwd)/sapi/cli/php"
 fi
+
+"$HERE/../build/verify-transports.sh" check "$(pwd)/sapi/cli/php" "$TRANSPORT_BASELINE"
 
 # --- swap -------------------------------------------------------------------
 TS="$(date +%Y%m%d%H%M%S)"

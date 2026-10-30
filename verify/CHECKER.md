@@ -71,3 +71,19 @@ classification, failed settings, JSON escaping, FPM inspection, upstream and
 unrecognized versions, allocator/session/multipart fingerprints and HTTP ambiguity.
 It is included in `tests/run-all.sh` and the existing CI tooling job. These tests
 verify scanner decisions; they do not substitute for building each PHP backport.
+
+## Runtime coverage and transport compatibility
+
+The default inventory includes CLI, CGI, FPM and LiteSpeed binaries under the
+known panel prefixes; every executable receives its own verdict. Deep scans
+also include `php-cgi*` and `lsphp*` and preserve paths containing spaces.
+Build utilities (`phpize`, `php-config`) and backup trees are excluded from
+automatic inventory. `--binary` can explicitly inspect an otherwise excluded
+path. An undiscovered or unreadable SAPI cannot be certified by another SAPI.
+
+JSON includes `ssl_transport`, `tls_transport` (true/false/null) and
+`serialize_handler`. These are read from that SAPI's `-i` output. `null` means
+unreadable, and `unknown` means the serializer could not be read. Exact `ssl`
+and `tls` registry entries are required; `tlsv1.2` alone does not establish
+availability of the generic `tls://` transport. This is a compatibility check,
+not a TLS handshake, certificate validation, or CVE verdict.

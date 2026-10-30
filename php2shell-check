@@ -18,7 +18,7 @@
 
 set -o pipefail 2>/dev/null || true
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 REPO_URL="https://github.com/Anton-Barinov/php2shell-patches"
 
 # Flags
@@ -238,7 +238,16 @@ discover_php_binaries() {
         return
     fi
     # 1. Standard PATH / system locations
-    for p in /usr/bin/php* /usr/local/bin/php* /usr/sbin/php-fpm* /usr/local/sbin/php-fpm* /opt/php*/bin/php* /opt/php*/sbin/php-fpm* /opt/fphp*/bin/php* /opt/fphp*/sbin/php-fpm* /opt/alt/php*/usr/bin/php* /opt/alt/php*/usr/sbin/php-fpm* /opt/rh/rh-php*/root/usr/bin/php* /opt/rh/rh-php*/root/usr/sbin/php-fpm* /usr/local/php*/bin/php* /usr/local/php*/sbin/php-fpm* /usr/local/lsws/lsphp*/bin/*php* /opt/keyhelp/php/*/bin/php* /opt/keyhelp/php/*/sbin/php-fpm* /opt/homebrew/bin/php /usr/local/hestia/php/bin/php /usr/local/hestia/php/sbin/php-fpm; do
+    for p in /usr/bin/php* /usr/local/bin/php* /usr/bin/lsphp* /usr/local/bin/lsphp* \
+             /usr/sbin/php-fpm* /usr/local/sbin/php-fpm* \
+             /opt/php*/bin/php* /opt/php*/bin/lsphp* /opt/php*/sbin/php-fpm* \
+             /opt/fphp*/bin/php* /opt/fphp*/bin/lsphp* /opt/fphp*/sbin/php-fpm* \
+             /opt/alt/php*/usr/bin/php* /opt/alt/php*/usr/bin/lsphp* /opt/alt/php*/usr/sbin/php-fpm* \
+             /opt/rh/rh-php*/root/usr/bin/php* /opt/rh/rh-php*/root/usr/sbin/php-fpm* \
+             /usr/local/php*/bin/php* /usr/local/php*/bin/lsphp* /usr/local/php*/sbin/php-fpm* \
+             /usr/local/lsws/lsphp*/bin/*php* /usr/local/lsws/fcgi-bin/lsphp* \
+             /opt/keyhelp/php/*/bin/php* /opt/keyhelp/php/*/sbin/php-fpm* \
+             /opt/homebrew/bin/php /usr/local/hestia/php/bin/php /usr/local/hestia/php/sbin/php-fpm; do
         if [ -f "$p" ] && [ -x "$p" ]; then
             candidates+=("$p")
         fi
@@ -246,7 +255,7 @@ discover_php_binaries() {
 
     # 2. aaPanel / Baota locations
     if [ -d "/www/server/php" ]; then
-        for p in /www/server/php/*/bin/php /www/server/php/*/sbin/php-fpm; do
+        for p in /www/server/php/*/bin/php* /www/server/php/*/bin/lsphp* /www/server/php/*/sbin/php-fpm*; do
             if [ -f "$p" ] && [ -x "$p" ]; then
                 candidates+=("$p")
             fi
@@ -255,7 +264,7 @@ discover_php_binaries() {
 
     # 3. Plesk locations
     if [ -d "/opt/plesk/php" ]; then
-        for p in /opt/plesk/php/*/bin/php /opt/plesk/php/*/sbin/php-fpm; do
+        for p in /opt/plesk/php/*/bin/php* /opt/plesk/php/*/bin/lsphp* /opt/plesk/php/*/sbin/php-fpm*; do
             if [ -f "$p" ] && [ -x "$p" ]; then
                 candidates+=("$p")
             fi
@@ -264,7 +273,7 @@ discover_php_binaries() {
 
     # 4. cPanel / EasyApache locations
     if [ -d "/opt/cpanel" ]; then
-        for p in /opt/cpanel/ea-php*/root/usr/bin/php /opt/cpanel/ea-php*/root/usr/sbin/php-fpm; do
+        for p in /opt/cpanel/ea-php*/root/usr/bin/php* /opt/cpanel/ea-php*/root/usr/sbin/php-fpm; do
             if [ -f "$p" ] && [ -x "$p" ]; then
                 candidates+=("$p")
             fi
@@ -273,7 +282,7 @@ discover_php_binaries() {
 
     # 5. Remi repository locations
     if [ -d "/opt/remi" ]; then
-        for p in /opt/remi/php*/root/usr/bin/php /opt/remi/php*/root/usr/sbin/php-fpm; do
+        for p in /opt/remi/php*/root/usr/bin/php* /opt/remi/php*/root/usr/sbin/php-fpm; do
             if [ -f "$p" ] && [ -x "$p" ]; then
                 candidates+=("$p")
             fi
@@ -293,13 +302,11 @@ discover_php_binaries() {
 
     # 7. Deep scan if requested (-a, --all)
     if [ "$OPT_ALL" -eq 1 ]; then
-        local deep_bins
-        deep_bins=$(find /usr /opt /www /usr/local /home /var -maxdepth 4 -type f \( -name "php" -o -name "php[0-9]*" -o -name "php-fpm*" \) -perm -111 2>/dev/null || true)
-        for p in $deep_bins; do
+        while IFS= read -r p; do
             if [ -f "$p" ] && [ -x "$p" ]; then
                 candidates+=("$p")
             fi
-        done
+        done < <(find /usr /opt /www /usr/local /home /var -maxdepth 8 -type f \( -name "php" -o -name "php[0-9]*" -o -name "php-fpm*" -o -name "php-cgi*" -o -name "lsphp*" \) -perm -111 2>/dev/null || true)
     fi
 
     # Filter out backup files (*.bak*), non-executables, and deduplicate realpaths
@@ -307,11 +314,15 @@ discover_php_binaries() {
     for bin in "${candidates[@]}"; do
         # Skip backup and temporary files
         case "$bin" in
-            *.bak*|*.swapbak*|*~|*.orig|*.old)
+            *.bak*|*.swapbak*|*~|*.orig|*.old|*.old/*|*.orig/*|*~/*)
                 continue
                 ;;
         esac
 
+        # Broad globs also match phpize/php-config and extension utilities.
+        # Filter the discovered name before resolving aliases to its realpath.
+        local runtime_name="${bin##*/}"
+        printf '%s\n' "$runtime_name" | LC_ALL=C grep -E '^(php|php-cgi|php-fpm|lsphp)([0-9]+(\.[0-9]+)*)?(-cgi|-fpm)?$' >/dev/null || continue
         local rpath
         rpath=$(resolve_path "$bin")
         if [ ! -f "$rpath" ] || [ ! -x "$rpath" ]; then
@@ -374,8 +385,9 @@ audit_php_runtime() {
     # Determine SAPI type
     local sapi="cli"
     case "$bin" in
-        *php-fpm*) sapi="fpm" ;;
-        *php-cgi*) sapi="cgi" ;;
+        *php-fpm*|*php[0-9]*-fpm) sapi="fpm" ;;
+        *php-cgi*|*php[0-9]*-cgi) sapi="cgi" ;;
+        *lsphp*) sapi="litespeed" ;;
         *)
             local sapi_check
             sapi_check=$("$bin" -r "echo PHP_SAPI;" 2>/dev/null || echo "cli")
@@ -408,6 +420,18 @@ audit_php_runtime() {
         0|Off|off) upload_progress="DISABLED" ;;
         1|On|on) upload_progress="ENABLED" ;;
     esac
+
+    local stream_transports ssl_transport="UNKNOWN" tls_transport="UNKNOWN" serializer
+    stream_transports=$(printf '%s\n' "$php_info" | sed -n 's/^Registered Stream Socket Transports => //p' | head -n 1)
+    if [ -n "$stream_transports" ]; then
+        ssl_transport="NO"; tls_transport="NO"
+        local transport
+        while IFS= read -r transport; do
+            case "$transport" in ssl) ssl_transport="YES" ;; tls) tls_transport="YES" ;; esac
+        done < <(printf '%s\n' "$stream_transports" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    fi
+    serializer=$(printf '%s\n' "$php_info" | sed -n 's/^session.serialize_handler => \([^ ]*\).*/\1/p' | head -n 1)
+    serializer="${serializer:-unknown}"
 
     # Fingerprints are evidence, not proof of all CVEs being fixed.
     # Multipart limits predate this incident and session-only fixes do not
@@ -471,7 +495,7 @@ audit_php_runtime() {
         status_msg="Observed graceful OOM shutdown with no known allocator-fix evidence. Legacy bailout behaviour requires remediation; this is not an RCE exploit test."
     fi
     # Output structured data
-    echo "${bin}|${raw_ver}|${branch}|${sapi}|${fpm_active}|${fpm_listen}|${ini_path}|${upload_progress}|${patch_applied}|${status}|${status_msg}"
+    echo "${bin}|${raw_ver}|${branch}|${sapi}|${fpm_active}|${fpm_listen}|${ini_path}|${upload_progress}|${patch_applied}|${status}|${status_msg}|${ssl_transport}|${tls_transport}|${serializer}"
 }
 
 # Remote Web Audit Mode (--url)
@@ -493,13 +517,12 @@ run_remote_audit() {
     fi
 
     # Step 1: Probe HTTP response headers
-    local header_file body_file
+    local header_file
     header_file=$(mktemp 2>/dev/null || mktemp -t 'p2s_hdr')
-    body_file=$(mktemp 2>/dev/null || mktemp -t 'p2s_body')
-    trap 'rm -f "$header_file" "$body_file" "${post_body:-}" "${probe_hdr:-}"' EXIT
+    trap 'rm -f "$header_file" "${post_body:-}" "${probe_hdr:-}"' EXIT
 
     local http_code
-    http_code=$(curl -sS -L --max-time 15 -D "$header_file" -o "$body_file" -w "%{http_code}" "$target_url" 2>/dev/null || true)
+    http_code=$(curl -sS -L --max-time 15 -D "$header_file" -o /dev/null -w "%{http_code}" "$target_url" 2>/dev/null || true)
 
     if [ -z "$http_code" ] || [ "$http_code" = "000" ]; then
         if [ "$OPT_JSON" -eq 1 ]; then
@@ -715,6 +738,9 @@ EOF
         patch_app=$(echo "$res" | cut -d'|' -f9)
         status=$(echo "$res" | cut -d'|' -f10)
         status_msg=$(echo "$res" | cut -d'|' -f11)
+        ssl_transport=$(echo "$res" | cut -d'|' -f12)
+        tls_transport=$(echo "$res" | cut -d'|' -f13)
+        serializer=$(echo "$res" | cut -d'|' -f14)
 
         idx=$((idx + 1))
         comma=","
@@ -722,7 +748,7 @@ EOF
             comma=""
         fi
 
-        for field in bin ver branch sapi fpm_listen ini_path status_msg; do
+        for field in bin ver branch sapi fpm_listen ini_path status_msg serializer; do
             printf -v "$field" '%s' "$(json_escape "${!field}")"
         done
         cat <<EOF
@@ -735,6 +761,9 @@ EOF
       "fpm_listen": $([ -n "$fpm_listen" ] && echo "\"$fpm_listen\"" || echo "null"),
       "ini_path": "$ini_path",
       "upload_progress": $(case "$upload_prog" in ENABLED) echo true ;; DISABLED) echo false ;; *) echo null ;; esac),
+      "ssl_transport": $(case "$ssl_transport" in YES) echo true ;; NO) echo false ;; *) echo null ;; esac),
+      "tls_transport": $(case "$tls_transport" in YES) echo true ;; NO) echo false ;; *) echo null ;; esac),
+      "serialize_handler": "$serializer",
       "patch_applied": $([ "$patch_app" = "YES" ] && echo "true" || echo "false"),
       "status": "$status",
       "details": "$status_msg"
@@ -783,6 +812,9 @@ if [ "$OPT_QUIET" -eq 0 ]; then
         patch_app=$(echo "$res" | cut -d'|' -f9)
         status=$(echo "$res" | cut -d'|' -f10)
         status_msg=$(echo "$res" | cut -d'|' -f11)
+        ssl_transport=$(echo "$res" | cut -d'|' -f12)
+        tls_transport=$(echo "$res" | cut -d'|' -f13)
+        serializer=$(echo "$res" | cut -d'|' -f14)
 
         fpm_note=""
         if [ "$fpm_active" = "YES" ]; then
@@ -796,6 +828,8 @@ if [ "$OPT_QUIET" -eq 0 ]; then
         echo -e "[${idx}] ${C_BOLD}${bin}${C_RESET}${C_GRAY}${fpm_note}${C_RESET}"
         echo -e "    - Version:         ${ver}"
         echo "    - upload_progress: ${upload_prog} (SAPI defaults; pool overrides unverified)"
+        echo "    - SSL/TLS streams: ssl=${ssl_transport}, tls=${tls_transport} (availability only; no connection attempted)"
+        echo "    - Serializer:      ${serializer} (SAPI default)"
         echo -e "    - Patch applied:   $([ "$patch_app" = "YES" ] && echo -e "${C_GREEN}YES${C_RESET}" || echo "NO")"
         if [ "$ini_path" != "none" ]; then
             echo -e "    - Loaded ini:      ${ini_path}"

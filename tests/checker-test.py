@@ -2,6 +2,7 @@
 """Offline verdict regressions: fake PHP/curl executables, no target servers."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -16,13 +17,13 @@ class CheckerTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.work = Path(self.tmp.name)
 
-    def check(self, version='7.4.33', signatures='', upload='On', name='php', probe=False):
+    def check(self, version='7.4.33', signatures='', upload='On', name='php', probe=False, transports=None):
         binary = self.work / name
         binary.write_text('''#!/bin/bash
 # %s
 case " $* " in
   *" -v "*) printf 'startup warning\\nPHP %s (test)\\n' ;;
-  *" -i "*) printf 'Loaded Configuration File => /test/quoted"path.ini\\nsession.upload_progress.enabled => %s => %s\\n' ;;
+  *" -i "*) printf 'Loaded Configuration File => /test/quoted"path.ini\\nsession.upload_progress.enabled => %s => %s\\n%s' ;;
   *" -r "*)
     case "$*" in
       *P2S_BEFORE*) printf 'P2S_BEFORE\\nAllowed memory size exhausted\\n%s'; exit %s ;;
@@ -30,6 +31,7 @@ case " $* " in
     esac ;;
 esac
 ''' % (signatures, version, upload, upload,
+       '' if transports is None else 'Registered Stream Socket Transports => ' + transports + '\\nsession.serialize_handler => php_serialize => php_serialize\\n',
        '' if 'zend_mm_safe_error_ex' in signatures else 'P2S_SHUTDOWN\n',
        '1' if 'zend_mm_safe_error_ex' in signatures else '255'))
         binary.chmod(0o755)
@@ -126,6 +128,45 @@ esac
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertNotIn('PASS - worker died', result.stdout)
         self.assertIn('UNKNOWN - no OOM entry marker', result.stdout)
+
+    def test_transports_are_reported_without_affecting_cve_verdict(self):
+        for transports, ssl, tls in [('tcp, ssl, tls, tlsv1.2', True, True), ('tcp, tlsv1.2', False, False), (None, None, None)]:
+            with self.subTest(transports=transports):
+                _, row = self.check(transports=transports)
+                self.assertEqual((row['ssl_transport'], row['tls_transport']), (ssl, tls))
+                self.assertEqual(row['status'], 'UNKNOWN')
+                if transports is not None:
+                    self.assertEqual(row['serialize_handler'], 'php_serialize')
+
+    def test_litespeed_and_cgi_are_distinct_sapis(self):
+        self.assertEqual(self.check(name='lsphp')[1]['sapi'], 'litespeed')
+        self.assertEqual(self.check(name='php8.1-cgi')[1]['sapi'], 'cgi')
+
+    def test_discovery_includes_panel_cgi_and_litespeed_but_not_tools(self):
+        root = self.work / 'fake-root'
+        paths = ['www/server/php/74/bin/php', 'www/server/php/74/bin/php-cgi',
+                 'www/server/php/74/bin/lsphp', 'www/server/php/74/sbin/php-fpm',
+                 'opt/plesk/php/8.1/bin/php-cgi', 'usr/bin/phpize', 'usr/bin/php-config',
+                 'opt/php74.old/bin/php', 'opt/custom path/deep/bin/lsphp']
+        for name in paths:
+            target = root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('#!/bin/sh\nexit 0\n')
+            target.chmod(0o755)
+        source = (ROOT / 'php2shell-check').read_text()
+        function = source[source.index('discover_php_binaries() {'):source.index('# Consume the entire match stream')]
+        function = re.sub(r'/(usr|opt|www|home|var)(?=/|[ \n])', lambda match: str(root) + match.group(0), function)
+        code = 'OPT_BINARY=""; OPT_ALL=1; resolve_path() { printf "%s\\n" "$1"; }; ps() { :; }; ' + function + '\ndiscover_php_binaries'
+        result = subprocess.run(['bash', '-c', code], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        found = result.stdout.splitlines()
+        self.assertIn(str(root / paths[1]), found)
+        self.assertIn(str(root / paths[2]), found)
+        self.assertIn(str(root / paths[4]), found)
+        self.assertIn(str(root / paths[-1]), found)
+        self.assertNotIn(str(root / 'usr/bin/phpize'), found)
+        self.assertNotIn(str(root / 'usr/bin/php-config'), found)
+        self.assertNotIn(str(root / 'opt/php74.old/bin/php'), found)
 
 
 if __name__ == '__main__':

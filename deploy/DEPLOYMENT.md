@@ -464,3 +464,19 @@ Offline regressions are in `tests/build-test.py` and `tests/restore-test.sh` and
 run through the existing `tests/run-all.sh` CI gate. They exercise script control
 flow with fake compilers/PHP binaries; they do not replace compiling the actual
 PHP branches on the intended Linux distribution.
+
+## Preserve SSL/TLS transports when replacing PHP
+
+`build/verify-transports.sh` lists the CLI's registered stream transports without
+making a network connection. The system and aaPanel swap tools snapshot the
+installed CLI and refuse a replacement that loses an existing `ssl` or `tls`
+transport, before stopping the existing service or installing files. A failed
+probe or absent baseline aborts the check; neither is interpreted as an empty
+transport list. aaPanel verifies the installed binary again and performs its
+module/patch checks before starting the new FPM.
+
+This detects the missing-OpenSSL regression that can break SMTP/HTTPS streams
+after a source rebuild even when patch signatures are present. It does not
+certify protocol negotiation, trusted certificates, FPM pool settings or a
+third-party extension ABI. The comparison uses each CLI's default configuration;
+web SAPI overrides still need separate inspection.
