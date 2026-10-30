@@ -72,10 +72,7 @@ mkdir -p "$LOG_DIR"
 is_patched() {
     local target="${1:-$PREFIX/bin/php}"
     [ -x "$target" ] || return 1
-    local out rc
-    out=$("$target" -n -d memory_limit=8M -d display_errors=1 -r '$a = str_repeat("x", 32 * 1024 * 1024);' 2>/dev/null)
-    rc=$?
-    [ "$rc" -eq 1 ] && [ -z "$out" ]
+    "$REPO_ROOT/build/verify-exit-oom.sh" "$target" >/dev/null 2>&1
 }
 
 linked_libs() {
@@ -136,13 +133,15 @@ do_build() {
         fi
     fi
 
+    patch_path="$(cd "$(dirname "$patch_path")" && pwd)/$(basename "$patch_path")"
     info "Using patch: $patch_path"
 
     # Fetch official PHP source if missing
     if [ ! -f "$SRC_TGZ" ]; then
         info "Downloading official php-$PHP_FULL source tarball..."
         local url="https://www.php.net/distributions/php-$PHP_FULL.tar.gz"
-        curl -fSL "$url" -o "$SRC_TGZ" || curl -fSL "https://museum.php.net/php5/php-$PHP_FULL.tar.gz" -o "$SRC_TGZ" || die "Failed to download $url"
+        curl -fSL "$url" -o "$SRC_TGZ.part" || curl -fSL "https://museum.php.net/php5/php-$PHP_FULL.tar.gz" -o "$SRC_TGZ.part" || die "Failed to download $url"
+        mv "$SRC_TGZ.part" "$SRC_TGZ" || die "Failed to save source archive"
     fi
 
     # Read original configure flags from running installation
@@ -171,11 +170,11 @@ do_build() {
     fi
 
     info "Unpacking source tree..."
-    rm -rf "$SRC_DIR"
-    mkdir -p "$BUILD_ROOT"
-    tar -xzf "$SRC_TGZ" -C "$BUILD_ROOT"
+    rm -rf "$SRC_DIR" || die "Could not remove old source tree"
+    mkdir -p "$BUILD_ROOT" || die "Could not create build directory"
+    tar -xzf "$SRC_TGZ" -C "$BUILD_ROOT" || die "Source extraction failed"
 
-    cd "$SRC_DIR"
+    cd "$SRC_DIR" || die "Source directory missing"
 
     info "Applying security patch..."
     patch -p1 --no-backup-if-mismatch < "$patch_path" || die "Patch application failed"
@@ -226,7 +225,7 @@ do_build() {
 restore() {
     local backup="$1"
     local start="$2"
-    fpm_stop || true
+    fpm_stop || die "Cannot stop php-fpm; rollback aborted before moving files"
     rm -rf "$PREFIX.failed" && mv "$PREFIX" "$PREFIX.failed" && cp -a "$backup" "$PREFIX" || die "Automated rollback failed! Manually restore: rm -rf $PREFIX && cp -a $backup $PREFIX"
     rm -rf "$PREFIX.failed"
     if [ "$start" -eq 1 ]; then

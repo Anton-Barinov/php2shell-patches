@@ -426,3 +426,41 @@ Use `deploy/swap-aapanel-php.sh`:
   - Verifies module baseline matches pre-swap state.
   - Automatically performs full rollback if any check fails.
 
+
+
+## Build verification and rollback preflight
+
+Keep the `build/` and `deploy/` directories together when copying tooling to a
+server. All three builders now use `build/verify-exit-oom.sh` to validate this
+repository's `_exit(1)` allocator behaviour. The probe requires an entry marker,
+an allocation failure diagnostic, exit code 1 and no shutdown/continuation marker.
+An arbitrary silent exit 1 no longer counts as a successful verification. The
+probe is CLI-only and does not establish complete UAF/serializer CVE coverage.
+
+`build/build-patched-php.sh` runs this check before `make install` and again on
+the installed CLI. Configure options follow the optional prefix:
+
+```bash
+./build/build-patched-php.sh 7.4.33 patches/php-7.4-enhanced-universal.patch /opt/php-7.4-patched --without-curl
+```
+
+Patch paths and the installation prefix are resolved before changing directory.
+The downloaded tarball is cached only after curl succeeds. Every invocation
+extracts a fresh source tree in `.php2shell-build/`; changes to the previous
+extracted tree are discarded. Configure options should be supplied as arguments.
+
+`swap-system-php.sh` now respects `BUILD_ROOT` for its extracted source tree as
+well as its archives and baseline files. `swap-aapanel-php.sh` stops immediately
+if extraction or entering the source directory fails and resolves an explicitly
+supplied relative patch before entering that directory.
+
+`restore-system-php.sh` refuses to begin if any existing CLI/FPM/CGI binary has
+no backup. Recover the complete backup set before retrying; partial rollback is
+not reported as success. A missing current binary is recreated from its backup.
+aaPanel rollback also refuses to move the installation prefix if FPM cannot be
+stopped, so a live process cannot be left using libraries from a moved tree.
+
+Offline regressions are in `tests/build-test.py` and `tests/restore-test.sh` and
+run through the existing `tests/run-all.sh` CI gate. They exercise script control
+flow with fake compilers/PHP binaries; they do not replace compiling the actual
+PHP branches on the intended Linux distribution.

@@ -7,6 +7,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 rc=0
 python3 "$HERE/checker-test.py" || rc=1
+python3 "$HERE/build-test.py" || rc=1
 for t in cfg-backup-test.sh ioncube-mirror-test.sh smoke-test.sh \
          retro-test.sh restore-test.sh cvecheck-test.sh stress-test.sh; do
   echo "===== $t ====="

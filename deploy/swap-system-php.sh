@@ -41,11 +41,14 @@
 #           libsodium-dev, and optionally: libreadline-dev.
 set -euo pipefail
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
 VER="${1:?usage: swap-system-php.sh <ver> [patch-file]}"
+[[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "FATAL: invalid PHP version" >&2; exit 1; }
 PATCH="${2:-}"
 XY="${VER%.*}"
-SRC="/opt/build/src-$VER"
 BUILD_ROOT="${BUILD_ROOT:-/opt/build}"
+BUILD_ROOT="$(cd "$BUILD_ROOT" && pwd)"
+SRC="$BUILD_ROOT/src-$VER"
 CRITICAL_MODULES="filter ctype json mbstring tokenizer phar fileinfo session hash openssl curl mysqli pdo pdo_mysql zip iconv"
 
 # php -m also prints section headers and loader banner lines
@@ -210,12 +213,7 @@ fi
 
 # Patch verification probe
 if [ -n "$PATCH" ]; then
-  chk_out=$(sapi/cli/php -n -d memory_limit=8M -d display_errors=1 -r '$a = str_repeat("x", 32 * 1024 * 1024);' 2>/dev/null || true)
-  chk_rc=$?
-  if [ "$chk_rc" -ne 1 ] || [ -n "$chk_out" ]; then
-    echo "FATAL: Newly built sapi/cli/php failed patch verification (expected exit 1 with empty stdout)" >&2
-    exit 1
-  fi
+  "$HERE/../build/verify-exit-oom.sh" "$(pwd)/sapi/cli/php"
 fi
 
 # --- swap -------------------------------------------------------------------

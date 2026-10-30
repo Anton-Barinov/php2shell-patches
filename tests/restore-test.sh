@@ -158,14 +158,15 @@ assert_hasnt "T3 no daemon-reload" "daemon-reload" "$T/log"
 assert_has "T3 DRY-RUN OK" "DRY-RUN OK" "$T/out"
 rm -rf "$T"
 
-# --- T4: fpm backup missing → skip that file, still succeed -----------------
+# --- T4: missing fpm backup aborts the entire rollback before changes -----------------
 T="$(new_sandbox)"
 rm -f "$T"/usr/sbin/php-fpm$XY.bak-*
 run "$T" "$XY" > "$T/out" 2>&1; rc=$?
-assert_rc "T4 exit 0 despite missing fpm bak" 0 "$rc"
+assert_rc "T4 missing fpm bak exit 1" 1 "$rc"
 assert_has "T4 fpm binary untouched (still the fake)" "# fake-current-fpm" "$T/usr/sbin/php-fpm$XY"
-assert_eq "T4 php binary still restored" "$D_OLD" "$(cat "$T/usr/bin/php$XY")"
-assert_has "T4 skip message" "skip: no backup for" "$T/out"
+assert_eq "T4 php binary untouched" "$D_NEW" "$(cat "$T/usr/bin/php$XY")"
+assert_has "T4 refusal message" "rollback aborted before changes" "$T/out"
+assert_hasnt "T4 no service stop" "stop php$XY-fpm" "$T/log"
 rm -rf "$T"
 
 # --- T5: service was not running → no stop, but restart + active ------------
@@ -200,8 +201,16 @@ assert_has "T8 start was attempted" "start php$XY-fpm" "$T/log"
 assert_has "T8 FATAL reports fpm -t" "php-fpm$XY -t failed after restore" "$T/out"
 rm -rf "$T"
 
+# --- T9: a deleted binary with a valid backup is restored ------------------
+T="$(new_sandbox)"
+rm "$T/usr/bin/php-cgi$XY"
+run "$T" "$XY" > "$T/out" 2>&1; rc=$?
+assert_rc "T9 deleted binary restored exit 0" 0 "$rc"
+assert_eq "T9 cgi recreated from backup" "$D_OLD" "$(cat "$T/usr/bin/php-cgi$XY")"
+rm -rf "$T"
+
 if [ "$FAIL" -eq 0 ]; then
-  echo "ALL RESTORE-SYSTEM-PHP TESTS PASSED (8 scenarios)"
+  echo "ALL RESTORE-SYSTEM-PHP TESTS PASSED (9 scenarios)"
 else
   echo "RESTORE-SYSTEM-PHP TESTS FAILED"
 fi

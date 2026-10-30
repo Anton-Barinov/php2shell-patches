@@ -23,6 +23,7 @@ set -euo pipefail
 
 XY="${1:?usage: retro-swapbak.sh <X.Y>}"
 case "$XY" in *.*.*) XY="${XY%.*}";; esac   # accept 7.3.33 too
+[[ "$XY" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "FATAL: invalid PHP version" >&2; exit 1; }
 n=0
 
 shopt -s nullglob

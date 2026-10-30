@@ -3,3 +3,6 @@
 PROGRESS.md
 REPORT.md
 .ssh-helpers/
+
+# Local source downloads and build products
+.php2shell-build/

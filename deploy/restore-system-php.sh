@@ -29,6 +29,7 @@ set -euo pipefail
 
 XY="${1:?usage: restore-system-php.sh <X.Y> [--dry-run]}"
 case "$XY" in *.*.*) XY="${XY%.*}";; esac   # accept 7.3.33 too
+[[ "$XY" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "FATAL: invalid PHP version" >&2; exit 1; }
 DRY=0
 [ "${2:-}" = "--dry-run" ] && DRY=1
 
@@ -54,6 +55,14 @@ MAIN_BAK="$(earliest "/usr/bin/php$XY.bak-*")"
 [ -n "$MAIN_BAK" ] || fail "no /usr/bin/php$XY.bak-* — nothing to restore for php$XY"
 echo "oldest backup: $MAIN_BAK (distro state)"
 
+# Validate the whole rollback set before stopping a service or copying files.
+# A partial restore can otherwise mix distro CLI with a swapped FPM/CGI.
+for cur in "/usr/bin/php$XY" "/usr/sbin/php-fpm$XY" "/usr/bin/php-cgi$XY"; do
+  if [ -e "$cur" ] || [ -L "$cur" ]; then
+    [ -n "$(earliest "$cur.bak-*")" ] || fail "no backup for $cur — rollback aborted before changes"
+  fi
+done
+
 # A running fpm master holds its binary open → `cp -a` fails with
 # `Text file busy` (DEPLOYMENT.md P7); stop it first, restart comes last.
 if command -v systemctl >/dev/null 2>&1 \
@@ -63,7 +72,6 @@ if command -v systemctl >/dev/null 2>&1 \
 fi
 
 for cur in "/usr/bin/php$XY" "/usr/sbin/php-fpm$XY" "/usr/bin/php-cgi$XY"; do
-  [ -e "$cur" ] || { echo "skip: $cur absent"; continue; }
   bak="$(earliest "$cur.bak-*")"
   if [ -z "$bak" ]; then
     echo "skip: no backup for $cur"
