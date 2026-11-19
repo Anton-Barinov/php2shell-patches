@@ -535,6 +535,7 @@ index 0c45b1bb..6af5be64 100644
  	ps_globals->mod_data = NULL;
 +	ps_globals->in_rfc1867_update = 0;
 +	ps_globals->rfc1867_decode_refused = 0;
+ 	ps_globals->rfc1867_enabled = false;
  	ps_globals->session_status = php_session_none;
  	ps_globals->default_mod = NULL;
  	ps_globals->mod_user_implemented = 0;
