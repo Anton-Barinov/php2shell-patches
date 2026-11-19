@@ -124,10 +124,10 @@ diff -ruN php-7.2.34-src/ext/session/session.c php-7.2.34-enh-src/ext/session/se
  
  	p = val;
  
-@@ -2826,6 +2850,8 @@
- 	ps_globals->mod = NULL;
+@@ -2827,6 +2851,8 @@ static PHP_GINIT_FUNCTION(ps) /* {{{ */
  	ps_globals->serializer = NULL;
  	ps_globals->mod_data = NULL;
+ 	ps_globals->rfc1867_enabled = 0;
 +	ps_globals->in_rfc1867_update = 0;
 +	ps_globals->rfc1867_decode_refused = 0;
  	ps_globals->session_status = php_session_none;
