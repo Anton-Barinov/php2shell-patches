@@ -841,6 +841,23 @@ See [`verify/README.md`](verify/README.md) for full details.
 - aaPanel / BT Panel deployment reference & RAM-safe build concurrency: [Qsnh/php2shell-fixed](https://github.com/Qsnh/php2shell-fixed).
 - Community backports are **not affiliated with or endorsed by the PHP Group.**
 
+
+---
+
+## Additional Security Backports (November 2026 Vulnerabilities)
+
+In November 2026, the PHP Group disclosed two additional critical vulnerabilities (released upstream in PHP 8.2.36 / 8.3.37 / 8.4.28 / 8.5.13):
+
+1. **CVE-2026-126714 ("phpAfterShell")**: File Session Handler TOCTOU Race Condition leading to Object Injection RCE via incomplete file truncation in `ext/session/mod_files.c`.
+   - **PHP 7.0 – 8.1:** [`patches/cve-2026-126714-php7-8.patch`](patches/cve-2026-126714-php7-8.patch)
+   - **PHP 5.4 – 5.6:** [`patches/cve-2026-126714-php5.patch`](patches/cve-2026-126714-php5.patch)
+
+2. **CVE-2026-129496**: Timezone Cache Use-After-Free during early process/module startup error logging in `main/main.c`.
+   - **PHP 7.0 – 8.1:** [`patches/cve-2026-129496-php7-8.patch`](patches/cve-2026-129496-php7-8.patch)
+   - **PHP 5.4 – 5.6:** [`patches/cve-2026-129496-php5.patch`](patches/cve-2026-129496-php5.patch)
+
+*(Note: Users building on Remi Collet trees via `remicollet/php-src-security` already have these backported by Remi in the latest git heads).*
+
 ## Licence
 
 Patches derived from php-src are under the PHP License v3.01.
