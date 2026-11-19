@@ -1,12 +1,13 @@
-# php2shell patches — CVE-2026-109618 / CVE-2026-109619 / CVE-2026-115560 for old PHP (5.4–8.1) & OpenCart / HestiaCP
+# php2shell patches — CVE-2026-109618 / CVE-2026-109619 / CVE-2026-115560 / CVE-2026-126714 / CVE-2026-129496 for old PHP (5.4–8.1) & OpenCart / HestiaCP
 
 [![CI](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml/badge.svg)](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml)
 
-Emergency backports and hardening for **CVE-2026-109618**, **CVE-2026-109619**, and **CVE-2026-115560**
-("php2shell" & session serializer attack chains) — critical unauthenticated RCE vulnerabilities in PHP.
-Upstream patched CVE-2026-109618 and CVE-2026-109619 on 21 Oct 2026 (PHP 8.5.12 / 8.4.27 / 8.3.36 /
-8.2.35), while the third vector (**CVE-2026-115560**) is slated for the regular release cycle with an
-official recommendation to set `session.upload_progress.enabled = 0`.
+Emergency backports and hardening for **CVE-2026-109618**, **CVE-2026-109619**, **CVE-2026-115560**,
+**CVE-2026-126714** ("phpAfterShell"), and **CVE-2026-129496** — critical unauthenticated RCE vulnerabilities in PHP.
+Upstream patched CVE-2026-109618 and CVE-2026-109619 on 21 Oct 2026 (PHP 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35).
+On 19 Nov 2026, the PHP Group released PHP 8.5.13 / 8.4.28 / 8.3.37 / 8.2.36, officially turning
+`session.upload_progress.enabled = 0` by default (**CVE-2026-115560**) and addressing **CVE-2026-126714** (session file
+truncation TOCTOU) and **CVE-2026-129496** (timezone cache use-after-free).
 **PHP 5.4, 5.5, 5.6, 7.x, 8.0, 8.1 are EOL and get no official fix** — this
 repo packages complete EOL backports (official + community) plus emergency hardening
 for legacy stacks: **OpenCart, WordPress, Drupal, Joomla, Magento**, any
@@ -168,7 +169,7 @@ On 23–26 October 2026, PHP assigned **CVE-2026-115560** to a third RCE vector 
 - An attacker supplying a crafted upload progress key containing `|` followed by serialized objects can cause the session decoder to instantiate arbitrary objects, enabling deserialization gadget chain execution (RCE).
 
 ### 2. Status in Upstream PHP (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12)
-- Upstream emergency releases on 21 Oct 2026 addressed **CVE-2026-109618** and **CVE-2026-109619**, but **did not** patch CVE-2026-115560.
+- Upstream emergency releases on 21 Oct 2026 addressed **CVE-2026-109618** and **CVE-2026-109619**. On 19 Nov 2026, upstream released PHP 8.2.36 / 8.3.37 / 8.4.28 / 8.5.13 addressing **CVE-2026-115560** (disabling upload progress by default), **CVE-2026-126714**, and **CVE-2026-129496**.
 - The PHP team scheduled the upstream fix for the next regular monthly bugfix release.
 - **Official PHP mitigation for 8.2+:**
   ```ini
