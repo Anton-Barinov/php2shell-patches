@@ -1,13 +1,13 @@
-# php2shell patches — CVE-2026-109618 / CVE-2026-109619 / CVE-2026-115560 / CVE-2026-126714 / CVE-2026-129496 for old PHP (5.4–8.1) & OpenCart / HestiaCP
+# php2shell patches — CVE-2026-109618 / CVE-2026-109619 / CVE-2026-115560 / CVE-2026-126714 / CVE-2026-129496 / CVE-2026-128064 for old PHP (5.4–8.1) & OpenCart / HestiaCP
 
 [![CI](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml/badge.svg)](https://github.com/Anton-Barinov/php2shell-patches/actions/workflows/ci.yml)
 
 Emergency backports and hardening for **CVE-2026-109618**, **CVE-2026-109619**, **CVE-2026-115560**,
-**CVE-2026-126714** ("phpAfterShell"), and **CVE-2026-129496** — critical unauthenticated RCE vulnerabilities in PHP.
+**CVE-2026-126714** ("phpAfterShell"), **CVE-2026-129496**, and **CVE-2026-128064** — critical security vulnerabilities in PHP.
 Upstream patched CVE-2026-109618 and CVE-2026-109619 on 21 Oct 2026 (PHP 8.5.12 / 8.4.27 / 8.3.36 / 8.2.35).
 On 19 Nov 2026, the PHP Group released PHP 8.5.13 / 8.4.28 / 8.3.37 / 8.2.36, officially turning
-`session.upload_progress.enabled = 0` by default (**CVE-2026-115560**) and addressing **CVE-2026-126714** (session file
-truncation TOCTOU) and **CVE-2026-129496** (timezone cache use-after-free).
+`session.upload_progress.enabled = 0` by default (**CVE-2026-115560**), addressing **CVE-2026-126714** (session file
+truncation TOCTOU), **CVE-2026-129496** (timezone cache use-after-free), and **CVE-2026-128064** (mixed-case HTTPS/FTPS cleartext downgrade).
 **PHP 5.4, 5.5, 5.6, 7.x, 8.0, 8.1 are EOL and get no official fix** — this
 repo packages complete EOL backports (official + community) plus emergency hardening
 for legacy stacks: **OpenCart, WordPress, Drupal, Joomla, Magento**, any
@@ -169,7 +169,7 @@ On 23–26 October 2026, PHP assigned **CVE-2026-115560** to a third RCE vector 
 - An attacker supplying a crafted upload progress key containing `|` followed by serialized objects can cause the session decoder to instantiate arbitrary objects, enabling deserialization gadget chain execution (RCE).
 
 ### 2. Status in Upstream PHP (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12)
-- Upstream emergency releases on 21 Oct 2026 addressed **CVE-2026-109618** and **CVE-2026-109619**. On 19 Nov 2026, upstream released PHP 8.2.36 / 8.3.37 / 8.4.28 / 8.5.13 addressing **CVE-2026-115560** (disabling upload progress by default), **CVE-2026-126714**, and **CVE-2026-129496**.
+- Upstream emergency releases on 21 Oct 2026 addressed **CVE-2026-109618** and **CVE-2026-109619**. On 19 Nov 2026, upstream released PHP 8.2.36 / 8.3.37 / 8.4.28 / 8.5.13 addressing **CVE-2026-115560** (disabling upload progress by default), **CVE-2026-126714**, **CVE-2026-129496**, and **CVE-2026-128064**.
 - The PHP team scheduled the upstream fix for the next regular monthly bugfix release.
 - **Official PHP mitigation for 8.2+:**
   ```ini
@@ -847,7 +847,7 @@ See [`verify/README.md`](verify/README.md) for full details.
 
 ## Additional Security Backports (November 2026 Vulnerabilities)
 
-In November 2026, the PHP Group disclosed two additional critical vulnerabilities (released upstream in PHP 8.2.36 / 8.3.37 / 8.4.28 / 8.5.13):
+In November 2026, the PHP Group disclosed three additional vulnerabilities addressed in PHP 8.2.36 / 8.3.37 / 8.4.28 / 8.5.13:
 
 1. **CVE-2026-126714 ("phpAfterShell")**: File Session Handler TOCTOU Race Condition leading to Object Injection RCE via incomplete file truncation in `ext/session/mod_files.c`.
    - **PHP 7.0 – 8.1:** [`patches/cve-2026-126714-php7-8.patch`](patches/cve-2026-126714-php7-8.patch)
@@ -856,6 +856,11 @@ In November 2026, the PHP Group disclosed two additional critical vulnerabilitie
 2. **CVE-2026-129496**: Timezone Cache Use-After-Free during early process/module startup error logging in `main/main.c`.
    - **PHP 7.0 – 8.1:** [`patches/cve-2026-129496-php7-8.patch`](patches/cve-2026-129496-php7-8.patch)
    - **PHP 5.4 – 5.6:** [`patches/cve-2026-129496-php5.patch`](patches/cve-2026-129496-php5.patch)
+
+3. **CVE-2026-128064**: Mixed-case `HTTPS://` and `FTPS://` URL Scheme TLS Bypass / Cleartext Downgrade in HTTP & FTP stream wrappers (`ext/standard/http_fopen_wrapper.c` and `ext/standard/ftp_fopen_wrapper.c`).
+   - **PHP 7.3 – 8.1:** [`patches/cve-2026-128064-php7-8.patch`](patches/cve-2026-128064-php7-8.patch) (also available as [`patches/cve-2026-128064-php73-81.patch`](patches/cve-2026-128064-php73-81.patch))
+   - **PHP 7.0 – 7.2:** [`patches/cve-2026-128064-php70-72.patch`](patches/cve-2026-128064-php70-72.patch)
+   - **PHP 5.4 – 5.6:** [`patches/cve-2026-128064-php5.patch`](patches/cve-2026-128064-php5.patch)
 
 *(Note: Users building on Remi Collet trees via `remicollet/php-src-security` already have these backported by Remi in the latest git heads).*
 
