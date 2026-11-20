@@ -70,14 +70,29 @@ stays enabled.
 
 ---
 
+## 🛡️ Complete Vulnerability Coverage (6 CVEs)
+
+This repository provides backports covering all critical security flaws disclosed in October and November 2026:
+
+| CVE | Affected Component | Vulnerability Class | Severity | Protection in This Repository |
+|---|---|---|---|---|
+| **CVE-2026-109618** | `main/rfc1867.c` | Multipart boundary mismatch heap corruption / OOM RCE | Critical (9.8) | Backported in all `minimal` & `enhanced` patches (PHP 5.4–8.1) |
+| **CVE-2026-109619** | `ext/session/session.c` | Upload progress double-free / UAF via `max_multipart_body_parts` | Critical (9.8) | Backported in all `minimal` & `enhanced` patches (PHP 5.4–8.1) |
+| **CVE-2026-115560** | `ext/session/session.c` | Session serializer mismatch object injection RCE via upload progress key | High (8.8) | Protected in all `enhanced` patches (delimiter sanitization + `incomplete_classes_only`) & `minimal` (stripped) |
+| **CVE-2026-126714** | `ext/session/mod_files.c` | "phpAfterShell" session file truncation TOCTOU race condition | Critical (9.4) | Standalone backports: [`cve-2026-126714-php7-8.patch`](patches/cve-2026-126714-php7-8.patch), [`cve-2026-126714-php5.patch`](patches/cve-2026-126714-php5.patch) |
+| **CVE-2026-129496** | `main/main.c` | Timezone cache use-after-free during early error logging | High (7.5) | Standalone backports: [`cve-2026-129496-php7-8.patch`](patches/cve-2026-129496-php7-8.patch), [`cve-2026-129496-php5.patch`](patches/cve-2026-129496-php5.patch) |
+| **CVE-2026-128064** | `ext/standard/*_fopen_wrapper.c` | Mixed-case `HTTPS://` / `FTPS://` URL scheme cleartext stream downgrade | High (8.2) | Standalone backports: [`cve-2026-128064-php7-8.patch`](patches/cve-2026-128064-php7-8.patch), [`cve-2026-128064-php70-72.patch`](patches/cve-2026-128064-php70-72.patch), [`cve-2026-128064-php5.patch`](patches/cve-2026-128064-php5.patch) |
+
+---
+
 ## Which fix do you need?
 
 | Your PHP | Official fix? | What to do |
 |---|---|---|
-| 8.5.x < 8.5.12 | ⚠️ partial (fixed 109618/19, CVE-2026-115560 pending next release) | `apt upgrade` + set `session.upload_progress.enabled = Off` in `php.ini` |
-| 8.4.x < 8.4.27 | ⚠️ partial (fixed 109618/19, CVE-2026-115560 pending next release) | same |
-| 8.3.x < 8.3.36 | ⚠️ partial (fixed 109618/19, CVE-2026-115560 pending next release) | same |
-| 8.2.x < 8.2.35 | ⚠️ partial (fixed 109618/19, CVE-2026-115560 pending next release) | same (note: 8.2 EOL 31 Dec 2026 — plan upgrade) |
+| 8.5.x < 8.5.13 | ✅ official (8.5.13+) | `apt upgrade` to 8.5.13+ (fixes CVE-2026-109618, 109619, 115560, 126714, 129496, 128064) |
+| 8.4.x < 8.4.28 | ✅ official (8.4.28+) | `apt upgrade` to 8.4.28+ |
+| 8.3.x < 8.3.37 | ✅ official (8.3.37+) | `apt upgrade` to 8.3.37+ |
+| 8.2.x < 8.2.36 | ✅ official (8.2.36+) | `apt upgrade` to 8.2.36+ (note: 8.2 EOL 31 Dec 2026 — plan upgrade) |
 | 8.1.x | ⚠️ backport | `php-8.1-minimal.patch` (PHP group) **or** `php-8.1-enhanced-universal.patch` (vanilla php.net) **or** `php-8.1-enhanced-remicollet.patch` (for Remi's tree) |
 | 8.0.x | ⚠️ backport | `php-8.0-minimal.patch` (PHP group) **or** `php-8.0-enhanced-universal.patch` (vanilla php.net) **or** `php-8.0-enhanced-remicollet.patch` (for Remi's tree) |
 | 7.4.x | ⚠️ backport | `php-7.4-minimal.patch` (official) **or** `php-7.4-enhanced-universal.patch` (vanilla php.net) **or** `php-7.4-enhanced-remicollet.patch` (for Remi's tree) |
